@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ app_title }} — Review Mode</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <style>
+    .review-wrap { display: grid; grid-template-columns: 1fr; gap: 10px; padding: 10px; }
+    .row { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: center; }
+    .pane { display: flex; justify-content: center; align-items: center; padding: 6px; background: #121214; border: 1px solid #2a2a2e; border-radius: 10px; min-height: 480px;}
+    .pane .label { position: absolute; background: rgba(0,0,0,0.6); padding: 4px 8px; border-radius: 999px; font-size: 12px; top: 10px; left: 10px; }
+    .controls { display: flex; justify-content: center; gap: 8px; }
+    .controls button, .controls select, .controls input { background: #1a1a1c; color: #f7f7f7; border: 1px solid #2a2a2e; padding: 8px 10px; border-radius: 8px; }
+    .controls .primary { background: #ff6a00; color: #111; font-weight: 700; border-color: #ff6a00; }
+    .hint { text-align: center; color: #9b9ba3; }
+    canvas { image-rendering: pixelated; }
+    .center { position: relative; }
+    .side { position: relative; opacity: 0.95; }
+    .kbd { border: 1px solid #333; border-bottom-width: 3px; border-radius: 6px; padding: 2px 6px; margin: 0 2px; font-size: 12px; background: #161618; }
+  </style>
+</head>
+<body>
+<header class="topbar">
+  <div class="title">Review Mode — ultra-fast tagging</div>
+  <div class="actions">
+    <a class="annotate" href="/" style="text-decoration:none;padding:6px 10px;">Back to Grid</a>
+  </div>
+</header>
+
+<section class="review-wrap">
+  <div class="controls">
+    <select id="labelSelect"></select>
+    <input id="newLabel" placeholder="new class…" />
+    <button id="addLabelBtn">Add Class</button>
+    <button id="delBtn" title="Delete current (Del)">Delete</button>
+    <button id="backBtn" title="Back (←)">◀ Back</button>
+    <button id="skipBtn" title="Skip (Space)">Skip ▶</button>
+  </div>
+
+  <div class="row">
+    <div class="pane side">
+      <div class="label">Previous</div>
+      <canvas id="prevCanvas" width="448" height="448"></canvas>
+    </div>
+
+    <div class="pane center">
+      <div class="label">Current (draw to annotate)</div>
+      <canvas id="currCanvas" width="672" height="672"></canvas>
+    </div>
+
+    <div class="pane side">
+      <div class="label">Next</div>
+      <canvas id="nextCanvas" width="448" height="448"></canvas>
+    </div>
+  </div>
+
+  <div class="hint">
+    Drag to draw a box — it saves instantly, uses the <b>last label</b>, and auto-advances.<br/>
+    Quick keys:
+    <span class="kbd">1–9</span> label, <span class="kbd">←</span> back, <span class="kbd">Space</span> skip, <span class="kbd">Del</span> delete.
+  </div>
+</section>
+
+<script>
+  window.reviewConfig = {
+    baseSize: 224, leftSize: 448, centerSize: 672, rightSize: 448
+  };
+</script>
+<script src="/static/review.js"></script>
+</body>
+</html>

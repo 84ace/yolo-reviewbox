@@ -1,0 +1,6 @@
+.DS_Store
+*.pem
+.venv/
+annotations/
+exports/
+images/

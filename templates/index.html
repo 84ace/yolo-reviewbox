@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ app_title }} — Review & Annotate</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="title">{{ app_title }}</div>
+    <div class="actions"><a class="annotate" href="/review" style="text-decoration:none;margin-right:8px;">Review Mode ⚡</a>
+      <button id="btnDelete" title="Delete selected (D)">Delete Selected</button>
+      <button id="btnExport" title="Export Pascal VOC (E)">Export VOC (annotated only)</button>
+    </div>
+  </header>
+
+  <section class="controls">
+    <div class="left">
+      <label>Page Size
+        <select id="pageSize">
+          <option value="100">100</option>
+          <option value="150">150</option>
+          <option value="200" selected>200</option>
+          <option value="240">240</option>
+          <option value="300">300</option>
+          <option value="500">500</option>
+        </select>
+      </label>
+      <label>Thumb
+        <select id="thumbSize">
+          <option value="96">96</option>
+          <option value="112" selected>112</option>
+          <option value="128">128</option>
+          <option value="160">160</option>
+          <option value="224">224</option>
+        </select>
+      </label>
+      <label>Filter
+        <input id="filterText" placeholder="filename contains..." />
+      </label>
+    </div>
+    <div class="right">
+      <button id="btnPrev" title="Previous (←)">Prev</button>
+      <span id="pageInfo"></span>
+      <button id="btnNext" title="Next (→)">Next</button>
+    </div>
+  </section>
+
+  <section id="grid" class="grid"></section>
+
+  <footer class="foot">
+    <div>Tips: Click to select. Shift-click selects a range. Press D to delete, A to toggle select-all on page, E to export. Click ✏️ to annotate an image.</div>
+  </footer>
+
+  <script>
+    window.appConfig = { pageSize: {{ page_size|int }} };
+  </script>
+  <script src="/static/main.js"></script>
+</body>
+</html>

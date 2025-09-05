@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ app_title }} — Annotate {{ image_name }}</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="title">Annotate: {{ image_name }}</div>
+    <div class="actions">
+      <select id="labelSelect"></select>
+      <input id="newLabel" placeholder="new class..." />
+      <button id="addLabelBtn">Add Class</button>
+      <button id="saveBtn" class="primary">Save (S)</button>
+    </div>
+  </header>
+
+  <section class="annotate-wrap">
+    <div class="canvas-wrap">
+      <img id="img" src="/image/{{ image_name }}" width="{{ image_w }}" height="{{ image_h }}" />
+      <canvas id="canvas" width="{{ image_w }}" height="{{ image_h }}"></canvas>
+    </div>
+    <aside class="box-list">
+      <div class="hdr">Boxes</div>
+      <ul id="boxes"></ul>
+      <div class="hint">Draw: drag on image. Select: click box. Delete selected: Backspace. Change class: choose dropdown.</div>
+    </aside>
+  </section>
+
+  <script>
+    window.annConfig = { image: "{{ image_name }}", w: {{ image_w|int }}, h: {{ image_h|int }} };
+  </script>
+  <script src="/static/annotate.js"></script>
+</body>
+</html>
