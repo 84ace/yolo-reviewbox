@@ -21,7 +21,6 @@
   const SIZES = { prev: window.reviewConfig.leftSize || base*2, curr: window.reviewConfig.centerSize || base*3, next: window.reviewConfig.rightSize || base*2 };
 
   let images = []; let idx = 0;
-  let lastLabel = localStorage.getItem("rb-last-label") || "";
   const boxesCache = {}; // name -> boxes[]
   let isDragging = false; let dragStart = null; let lastPos = null;
   let activeMouseUpHandler = null;
@@ -32,10 +31,6 @@
   async function loadClasses(){
     const res = await fetch("/api/classes"); const data = await res.json();
     renderClasses(data.classes || []);
-    if (lastLabel) {
-      const i = Array.from(labelSelect.options).findIndex(o => o.value === lastLabel);
-      if (i >= 0) labelSelect.selectedIndex = i;
-    }
   }
   function renderClasses(classes){
     labelSelect.innerHTML = "";
@@ -48,7 +43,7 @@
     renderClasses(existing); newLabel.value="";
     await fetch("/api/classes",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({classes:existing})});
   });
-  labelSelect.addEventListener("change", ()=>{ lastLabel = labelSelect.value || ""; localStorage.setItem("rb-last-label", lastLabel); });
+  labelSelect.addEventListener("change", ()=>{ localStorage.setItem("rb-last-label", labelSelect.value || ""); });
 
   async function loadImages(){
     const res = await fetch("/api/images?page=1&page_size=2500"); const data = await res.json();
@@ -137,11 +132,11 @@
         y1: Math.max(0, Math.min(base-1, Math.round(dragStart.y/f))),
         x2: Math.max(0, Math.min(base-1, Math.round(lastPos.x/f))),
         y2: Math.max(0, Math.min(base-1, Math.round(lastPos.y/f))),
-        label: labelSelect.value || lastLabel || ""
+        label: labelSelect.value || ""
       };
       const updatedBoxes = await saveBox(currName, box);
       boxesCache[currName] = updatedBoxes;
-      lastLabel = box.label; localStorage.setItem("rb-last-label", lastLabel);
+      localStorage.setItem("rb-last-label", box.label);
       if (idx < images.length-1) idx += 1;
       await renderTriplet();
     }
@@ -183,7 +178,8 @@
     if (e.key>="1" && e.key<="9"){
       const n=parseInt(e.key,10)-1;
       if (n>=0 && n<labelSelect.options.length){
-        labelSelect.selectedIndex=n; lastLabel=labelSelect.value||""; localStorage.setItem("rb-last-label", lastLabel);
+        labelSelect.selectedIndex=n;
+        localStorage.setItem("rb-last-label", labelSelect.value || "");
       }
     }
   });

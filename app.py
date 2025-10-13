@@ -249,20 +249,14 @@ def update_classes_from_annotations():
         try:
             tree = ET.parse(ann_file)
             for obj in tree.findall("object"):
-                classes.add(obj.findtext("name"))
+                class_name = obj.findtext("name")
+                if class_name:
+                    classes.add(class_name)
         except ET.ParseError:
             continue
 
     CLASSES_FILE = os.path.join(ANNOTATION_DIR, "classes.json")
-    existing_classes = []
-    if os.path.exists(CLASSES_FILE):
-        try:
-            with open(CLASSES_FILE, "r") as f:
-                existing_classes = json.load(f)
-        except json.JSONDecodeError:
-            pass # Overwrite if invalid json
-
-    all_classes = sorted(list(classes.union(set(existing_classes))))
+    all_classes = sorted(list(classes))
 
     with open(CLASSES_FILE, "w") as f:
         json.dump(all_classes, f, indent=2)
