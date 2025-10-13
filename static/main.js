@@ -203,7 +203,11 @@
       const res = await fetch("/api/import_voc", { method: "POST", body: formData });
       const data = await res.json();
       if (res.ok && data.ok) {
-        alert(data.message || "Import successful!");
+        let alertMsg = data.message || "Import finished.";
+        if (data.failed_files && data.failed_files.length > 0) {
+          alertMsg += `\n\nCould not import:\n- ${data.failed_files.join("\n- ")}`;
+        }
+        alert(alertMsg);
         await fetchClasses();
         await fetchImages();
       } else {
