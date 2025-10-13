@@ -13,7 +13,6 @@ ANNOTATION_DIR = os.environ.get("RB_ANNOTATION_DIR", os.path.abspath("./annotati
 EXPORTS_DIR = os.environ.get("RB_EXPORTS_DIR", os.path.abspath("./exports"))
 PAGE_SIZE_DEFAULT = int(os.environ.get("RB_PAGE_SIZE", "200"))
 ALLOWED_EXTS = {".jpg", ".jpeg", ".png"}
-MAX_IMAGES = 2500
 
 os.makedirs(IMAGE_DIR, exist_ok=True)
 os.makedirs(ANNOTATION_DIR, exist_ok=True)
@@ -28,7 +27,7 @@ def list_images_sorted() -> List[str]:
     for ext in ("*.jpg", "*.jpeg", "*.png", "*.JPG", "*.JPEG", "*.PNG"):
         files.extend(glob.glob(os.path.join(IMAGE_DIR, ext)))
     files.sort(key=lambda p: (-os.path.getmtime(p), os.path.basename(p).lower()))
-    return [os.path.basename(p) for p in files[:MAX_IMAGES]]
+    return [os.path.basename(p) for p in files]
 
 def is_safe_filename(name: str) -> bool:
     if "/" in name or "\\" in name: return False
@@ -273,7 +272,7 @@ def api_import_voc():
 
     try:
         imported_count = 0
-        with zipfile.ZipFile(io.BytesIO(file.read()), 'r') as z:
+        with zipfile.ZipFile(file, 'r') as z:
             for item in z.infolist():
                 if item.is_dir() or '__MACOSX' in item.filename:
                     continue
