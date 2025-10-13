@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import os, glob, json, shutil
+import os, glob, json, shutil, zipfile, io
 from datetime import datetime
 from typing import List, Dict, Any
 from flask import Flask, request, jsonify, render_template, send_from_directory, abort
@@ -93,13 +93,38 @@ def annotate_page():
     w,h = img_size(path)
     return render_template("annotate.html", image_name=img, image_w=w, image_h=h, app_title=APP_TITLE)
 
+def get_images_by_class(class_name: str) -> List[str]:
+    img_files = set()
+    for ann_file in glob.glob(os.path.join(ANNOTATION_DIR, "*.xml")):
+        try:
+            tree = ET.parse(ann_file)
+            root = tree.getroot()
+            for obj in root.findall("object"):
+                if obj.findtext("name") == class_name:
+                    filename = root.findtext("filename")
+                    if filename:
+                        img_files.add(filename)
+                    break
+        except ET.ParseError:
+            continue
+
+    all_images = list_images_sorted()
+    return [img for img in all_images if img in img_files]
+
 @app.route("/api/images")
 def api_images():
     try: page = int(request.args.get("page","1"))
     except: page = 1
     try: page_size = int(request.args.get("page_size", str(PAGE_SIZE_DEFAULT)))
     except: page_size = PAGE_SIZE_DEFAULT
-    imgs = list_images_sorted()
+
+    class_filter = request.args.get("class", None)
+
+    if class_filter and class_filter != "All Classes":
+        imgs = get_images_by_class(class_filter)
+    else:
+        imgs = list_images_sorted()
+
     total = len(imgs)
     start = max(0, (page-1)*page_size)
     end = min(total, start+page_size)
@@ -216,6 +241,64 @@ def api_classes():
         classes = data.get("classes", [])
         with open(CLASSES_FILE, "w") as f: json.dump(classes, f, indent=2)
         return jsonify({"ok": True})
+
+def update_classes_from_annotations():
+    """Scan all XML files and update classes.json"""
+    classes = set()
+    for ann_file in glob.glob(os.path.join(ANNOTATION_DIR, "*.xml")):
+        try:
+            tree = ET.parse(ann_file)
+            for obj in tree.findall("object"):
+                class_name = obj.findtext("name")
+                if class_name:
+                    classes.add(class_name)
+        except ET.ParseError:
+            continue
+
+    CLASSES_FILE = os.path.join(ANNOTATION_DIR, "classes.json")
+    all_classes = sorted(list(classes))
+
+    with open(CLASSES_FILE, "w") as f:
+        json.dump(all_classes, f, indent=2)
+
+@app.route("/api/import_voc", methods=["POST"])
+def api_import_voc():
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part"}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+    if not file.filename.lower().endswith('.zip'):
+        return jsonify({"error": "Invalid file type, must be a .zip file"}), 400
+
+    try:
+        imported_count = 0
+        with zipfile.ZipFile(io.BytesIO(file.read()), 'r') as z:
+            for item in z.infolist():
+                if item.is_dir() or '__MACOSX' in item.filename:
+                    continue
+
+                base_filename = os.path.basename(item.filename)
+                if not base_filename: continue
+
+                if any(base_filename.lower().endswith(ext) for ext in ALLOWED_EXTS):
+                    target_dir = IMAGE_DIR
+                    if not is_safe_filename(base_filename): continue
+                    target_path = os.path.join(target_dir, base_filename)
+                    with open(target_path, 'wb') as f: f.write(z.read(item.filename))
+                    imported_count += 1
+                elif base_filename.lower().endswith('.xml'):
+                    target_dir = ANNOTATION_DIR
+                    target_path = os.path.join(target_dir, base_filename)
+                    with open(target_path, 'wb') as f: f.write(z.read(item.filename))
+
+        update_classes_from_annotations()
+
+        return jsonify({"ok": True, "message": f"Imported {imported_count} images."})
+    except zipfile.BadZipFile:
+        return jsonify({"error": "Invalid or corrupted zip file."}), 400
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
 @app.route("/api/export_voc", methods=["POST"])
 def api_export_voc():

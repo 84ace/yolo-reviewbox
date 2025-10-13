@@ -9,8 +9,11 @@
 <body>
   <header class="topbar">
     <div class="title">{{ app_title }}</div>
-    <div class="actions"><a class="annotate" href="/review" style="text-decoration:none;margin-right:8px;">Review Mode ⚡</a>
+    <div class="actions">
+      <a class="annotate" href="/review" style="text-decoration:none;margin-right:8px;">Review Mode ⚡</a>
       <button id="btnDelete" title="Delete selected (D)">Delete Selected</button>
+      <button id="btnImport" title="Import Pascal VOC zip">Import VOC</button>
+      <input type="file" id="importFile" accept=".zip" style="display:none;" />
       <button id="btnExport" title="Export Pascal VOC (E)">Export VOC (annotated only)</button>
     </div>
   </header>
@@ -38,6 +41,11 @@
       </label>
       <label>Filter
         <input id="filterText" placeholder="filename contains..." />
+      </label>
+      <label>Class
+        <select id="classFilter">
+          <option>All Classes</option>
+        </select>
       </label>
     </div>
     <div class="right">
