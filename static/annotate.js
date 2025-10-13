@@ -24,12 +24,12 @@
     const w = Math.abs(b.x2 - b.x1), h = Math.abs(b.y2 - b.y1);
     ctx.save();
     if (dashed) ctx.setLineDash([4,3]); else ctx.setLineDash([]);
-    ctx.lineWidth = active ? 2 : 1;
-    ctx.strokeStyle = active ? "#ff6a00" : "#00d7ff";
+    ctx.lineWidth = active ? 3 : 1;
+    ctx.strokeStyle = colorFromString(b.label);
     ctx.strokeRect(x, y, w, h);
     const label = b.label || "";
     if (label) {
-      ctx.fillStyle = "rgba(0,0,0,0.5)";
+      ctx.fillStyle = "rgba(0,0,0,0.6)";
       const textW = ctx.measureText(label).width + 8; const boxH = 16;
       ctx.fillRect(x, Math.max(0, y - boxH), textW, boxH);
       ctx.fillStyle = "#fff"; ctx.font = "12px system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial";

@@ -18,7 +18,7 @@ os.makedirs(IMAGE_DIR, exist_ok=True)
 os.makedirs(ANNOTATION_DIR, exist_ok=True)
 os.makedirs(EXPORTS_DIR, exist_ok=True)
 
-app = Flask(__name__)
+app = Flask(__name__, static_url_path='/static', static_folder='static')
 # Respect X-Forwarded-Proto/Host when behind a reverse proxy
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
