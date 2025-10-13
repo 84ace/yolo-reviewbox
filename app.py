@@ -93,13 +93,38 @@ def annotate_page():
     w,h = img_size(path)
     return render_template("annotate.html", image_name=img, image_w=w, image_h=h, app_title=APP_TITLE)
 
+def get_images_by_class(class_name: str) -> List[str]:
+    img_files = set()
+    for ann_file in glob.glob(os.path.join(ANNOTATION_DIR, "*.xml")):
+        try:
+            tree = ET.parse(ann_file)
+            root = tree.getroot()
+            for obj in root.findall("object"):
+                if obj.findtext("name") == class_name:
+                    filename = root.findtext("filename")
+                    if filename:
+                        img_files.add(filename)
+                    break
+        except ET.ParseError:
+            continue
+
+    all_images = list_images_sorted()
+    return [img for img in all_images if img in img_files]
+
 @app.route("/api/images")
 def api_images():
     try: page = int(request.args.get("page","1"))
     except: page = 1
     try: page_size = int(request.args.get("page_size", str(PAGE_SIZE_DEFAULT)))
     except: page_size = PAGE_SIZE_DEFAULT
-    imgs = list_images_sorted()
+
+    class_filter = request.args.get("class", None)
+
+    if class_filter and class_filter != "All Classes":
+        imgs = get_images_by_class(class_filter)
+    else:
+        imgs = list_images_sorted()
+
     total = len(imgs)
     start = max(0, (page-1)*page_size)
     end = min(total, start+page_size)

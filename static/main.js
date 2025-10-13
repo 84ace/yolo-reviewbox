@@ -10,9 +10,10 @@
   const pageSizeSel = document.getElementById("pageSize");
   const thumbSizeSel = document.getElementById("thumbSize");
   const filterText = document.getElementById("filterText");
+  const classFilter = document.getElementById("classFilter");
 
   let state = { page: 1, pageSize: window.appConfig?.pageSize || 200, total: 0,
-    images: [], selected: new Set(), lastClickedIndex: null, thumb: 112, filter: "" };
+    images: [], selected: new Set(), lastClickedIndex: null, thumb: 112, filter: "", class: "All Classes" };
   let pageBoxes = {}; // name -> boxes[]
 
   function applyThumbSize() {
@@ -21,7 +22,10 @@
   }
 
   async function fetchImages() {
-    const url = `/api/images?page=${state.page}&page_size=${state.pageSize}`;
+    let url = `/api/images?page=${state.page}&page_size=${state.pageSize}`;
+    if (state.class && state.class !== "All Classes") {
+      url += `&class=${encodeURIComponent(state.class)}`;
+    }
     const res = await fetch(url);
     const data = await res.json();
     state.total = data.total; state.images = data.images;
@@ -123,8 +127,6 @@
       const img = document.createElement("img"); img.src = `/image/${encodeURIComponent(name)}`; img.className = "thumb";
       img.loading = "lazy"; img.width = state.thumb; img.height = state.thumb; tile.appendChild(img);
 
-      const meta = document.createElement("div"); meta.className = "meta"; meta.textContent = name; tile.appendChild(meta);
-
       tile.addEventListener("click", (e) => {
         const sel = state.selected;
         if (e.shiftKey && state.lastClickedIndex !== null) {
@@ -132,13 +134,20 @@
           const end = Math.max(state.lastClickedIndex, idx);
           for (let j = start; j <= end; j++) {
             const name2 = imgs[j];
-            if (sel.has(name2)) sel.delete(name2); else sel.add(name2);
+            const tile2 = grid.children[j];
+            if (sel.has(name2)) {
+              sel.delete(name2);
+              if(tile2) tile2.classList.remove("selected");
+            } else {
+              sel.add(name2);
+              if(tile2) tile2.classList.add("selected");
+            }
           }
         } else {
           if (sel.has(name)) sel.delete(name); else sel.add(name);
           state.lastClickedIndex = idx;
         }
-        drawOverlayForTile(tile, name);
+        tile.classList.toggle("selected", sel.has(name));
       });
 
       grid.appendChild(tile);
@@ -218,6 +227,19 @@
   pageSizeSel.addEventListener("change", () => { state.pageSize = parseInt(pageSizeSel.value, 10); state.page = 1; fetchImages(); });
   thumbSizeSel.addEventListener("change", () => { state.thumb = parseInt(thumbSizeSel.value, 10); applyThumbSize(); render(); });
   filterText.addEventListener("input", (e) => { state.filter = e.target.value; render(); });
+  classFilter.addEventListener("change", () => { state.class = classFilter.value; state.page = 1; fetchImages(); });
+
+  async function fetchClasses() {
+    const res = await fetch("/api/classes");
+    const data = await res.json();
+    const classes = data.classes || [];
+    classes.forEach(c => {
+      const opt = document.createElement("option");
+      opt.value = c;
+      opt.textContent = c;
+      classFilter.appendChild(opt);
+    });
+  }
 
   document.addEventListener("keydown", (e) => {
     if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
@@ -235,5 +257,7 @@
 
   pageSizeSel.value = String(state.pageSize);
   thumbSizeSel.value = String(state.thumb);
-  applyThumbSize(); fetchImages();
+  applyThumbSize();
+  fetchClasses();
+  fetchImages();
 })();
