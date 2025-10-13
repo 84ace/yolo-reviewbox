@@ -239,14 +239,14 @@ def api_import_voc():
                 if not base_filename: continue
 
                 # Determine if it's an image or annotation and set the correct directory
-                if 'jpegimages/' in item.filename.lower() and any(base_filename.lower().endswith(ext) for ext in ALLOWED_EXTS):
+                if any(base_filename.lower().endswith(ext) for ext in ALLOWED_EXTS):
                     target_dir = IMAGE_DIR
                     if not is_safe_filename(base_filename): continue
                     target_path = os.path.join(target_dir, base_filename)
                     with open(target_path, 'wb') as f:
                         f.write(z.read(item.filename))
                     imported_count += 1
-                elif 'annotations/' in item.filename.lower() and base_filename.lower().endswith('.xml'):
+                elif base_filename.lower().endswith('.xml'):
                     target_dir = ANNOTATION_DIR
                     target_path = os.path.join(target_dir, base_filename)
                     with open(target_path, 'wb') as f:
