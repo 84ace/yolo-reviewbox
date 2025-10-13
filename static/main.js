@@ -51,10 +51,10 @@
     if (!boxes.length) return;
     const f = (w / 224);
     ctx.save();
-    ctx.strokeStyle = "#ff6a00";
     ctx.lineWidth = Math.max(1, Math.round(1*f));
     ctx.font = `${Math.max(10, Math.round(10*f))}px system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial`;
     boxes.forEach(b => {
+      ctx.strokeStyle = colorFromString(b.label);
       const x = Math.min(b.x1,b.x2)*f, y = Math.min(b.y1,b.y2)*f;
       const bw = Math.abs(b.x2-b.x1)*f, bh = Math.abs(b.y2-b.y1)*f;
       ctx.strokeRect(x,y,bw,bh);
@@ -203,7 +203,11 @@
       const res = await fetch("/api/import_voc", { method: "POST", body: formData });
       const data = await res.json();
       if (res.ok && data.ok) {
-        alert(data.message || "Import successful!");
+        let alertMsg = data.message || "Import finished.";
+        if (data.failed_files && data.failed_files.length > 0) {
+          alertMsg += `\n\nCould not import:\n- ${data.failed_files.join("\n- ")}`;
+        }
+        alert(alertMsg);
         await fetchClasses();
         await fetchImages();
       } else {

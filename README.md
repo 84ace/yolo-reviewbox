@@ -1,14 +1,15 @@
 # Yolo-ReviewBox
 
 Ultra-fast, web-based image reviewer & annotator built with Flask + vanilla JS.  
-Optimized for small (≈10 KB) **224×224** PNG/JPEG frames from a camera, up to **2,500 images** at a time.
+Optimized for reviewing and annotating large image datasets for object detection tasks.
 
-- **Grid review**: lightning-quick thumbnail grid with multi-select + bulk delete (deletes on disk).
-- **Review Mode (carousel)**: center image at **3×** (672×672), previous/next at **2×** (448×448). Draw a box → auto-save with last label → auto-advance.
-- **Overlays everywhere**: saved boxes render on thumbnails and in Review Mode.
-- **Pascal VOC** annotations: one XML per image (compatible with Roboflow / YOLO training imports).
-- **Export**: one-click VOC dataset ZIP with `JPEGImages/`, `Annotations/`, and `ImageSets/Main/train.txt`.
-- **HTTPS-ready**: run with mkcert or behind Nginx/Caddy.
+- **Grid review**: A lightning-fast thumbnail grid with multi-select and bulk delete capabilities.
+- **Review Mode (carousel)**: A high-speed annotation view with the current image at 3x resolution, and the previous/next images at 2x. Draw a box, and it auto-saves with the last used label and advances to the next image.
+- **Color-Coded Overlays**: Bounding boxes are colored by class name, providing a clear visual distinction between different object types in all views.
+- **Pascal VOC Annotations**: Annotations are saved as one XML file per image, compatible with Roboflow, YOLO, and other popular computer vision frameworks.
+- **Robust ZIP Import**: Import Pascal VOC datasets in a `.zip` file. The importer is designed to handle large datasets and is resilient to errors with individual files.
+- **One-Click Export**: Export your annotated dataset as a VOC-compliant `.zip` file, ready for training.
+- **HTTPS-Ready**: Run with mkcert or behind a reverse proxy like Nginx or Caddy.
 
 ---
 
@@ -22,7 +23,7 @@ source .venv/bin/activate
 # 2) Install deps
 pip install -r requirements.txt
 
-# 3) Put your images in ./images  (PNG or JPEG, 224×224)
+# 3) Put your images in ./images
 #    Or use env vars (see below) to point to a different folder.
 
 # 4) Run
@@ -39,8 +40,8 @@ python app.py
   mkcert -install
   mkcert 192.168.68.128   # replace with your host/IP
 
-  export RB_SSL_CERT_FILE=/path/to/192.168.68.128.pem
-  export RB_SSL_KEY_FILE=/path/to/192.168.68.128-key.pem
+  export RB_SSL_CERT_FILE=/path/to/192.168.128.pem
+  export RB_SSL_KEY_FILE=/path/to/192.168.128-key.pem
   python app.py   # now on https://<ip>:8000
   ```
 - **Ad-hoc self-signed**
@@ -72,7 +73,8 @@ python app.py
     ├── styles.css
     ├── main.js        # grid logic + overlays
     ├── review.js      # carousel + draw-to-advance
-    └── annotate.js    # single-image editor
+    ├── annotate.js    # single-image editor
+    └── utils.js       # color generation utility
 ```
 
 ---
@@ -100,7 +102,7 @@ python app.py
 - **Bulk delete**: removes images *and* their matching XML from the filesystem.
 
 **Overlays on thumbnails**  
-After you annotate, the grid draws scaled boxes over each thumbnail. It bulk-fetches annotations with a single call, and falls back to per-image fetch if needed.
+After you annotate, the grid draws scaled, color-coded boxes over each thumbnail. It bulk-fetches annotations with a single call, and falls back to per-image fetch if needed.
 
 ### Review Mode (carousel)
 - Open “Review Mode ⚡” from the top bar.
@@ -139,7 +141,6 @@ If you need to refine a box: click the ✏️ on a tile. You can add/remove boxe
 ## 6) Annotation format (Pascal VOC)
 
 Annotations are stored per-image in `annotations/<image_basename>.xml`.  
-Coordinates are integer pixel positions **relative to 224×224** images (the app scales UI for you).
 
 Example:
 ```xml
@@ -229,92 +230,29 @@ Upload this ZIP to Roboflow as a Pascal VOC dataset (compatible with YOLO traini
   =>
   { "ok": true, "zip_name": "VOC_YYYYMMDD_HHMMSS.zip", "zip_url": "/exports/..." }
   ```
+- `POST /api/import_voc`
+  Import a VOC dataset from a `.zip` file.
+  ```json
+  { "ok": true, "message": "Imported 2 images.", "failed_files": [] }
+  ```
 
 > **Caching**: annotation responses use `Cache-Control: no-store` and the client appends `?t=<Date.now()>` to avoid stale reads.
 
 ---
 
-## 9) Performance notes
-
-- **224×224** images are ideal for speed. The UI renders at 2×/3× only for drawing/clarity.
-- Grid overlays fetch via **bulk** endpoint; if that 404s, it falls back to parallel per-image requests (8 workers).
-- Review Mode keeps an **in-memory box cache** and draws the **Previous** pane immediately after a save (no network needed).
-- Event listeners are carefully de-duplicated (single global mouseup handler) to avoid slowdowns after many images.
-
----
-
-## 10) Troubleshooting
-
-- **No boxes on grid**  
-  Check DevTools Network for `POST /api/annotations_bulk`. If your server doesn’t have that route (older build), the UI will fall back to per-image fetches. Update to this build if you want the faster bulk route.
-
-- **Previous pane sometimes blank**  
-  This build fixes listener accumulation and uses a local cache. If you still see it, hard refresh (Ctrl/Cmd+Shift+R) to ensure the latest JS is loaded.
-
-- **“Insecure download” warning**  
-  Run over HTTPS (see above). Either mkcert or a reverse proxy works.
+## 9) Troubleshooting
 
 - **Boxes not saving**  
   Ensure the process can write to `annotations/`. Check server logs for exceptions.
 
-- **Deleting doesn’t remove overlays**  
-  After deletes, the grid refetches the page and redraws overlays. If you’ve modified paths, verify `RB_IMAGE_DIR` and `RB_ANNOTATION_DIR` are correct.
+- **“Insecure download” warning**
+  Run over HTTPS (see above). Either mkcert or a reverse proxy works.
+
+- **Import fails silently**
+  The importer is designed to be robust and skip problematic files. If an import fails, the UI will display a list of the files that could not be processed.
 
 ---
 
-## 11) Safety & data loss
-
-- **Delete is permanent**: files are removed from disk along with their XML.  
-  Consider backing up `images/` before bulk deletions.
-
----
-
-## 12) Roadmap (nice-to-have)
-
-- Toggle to hide/show grid overlays for ultra-large pages.
-- “Saved ✓” toast in Review Mode.
-- Per-tile “N boxes” badge in the grid.
-- Multi-class hotkeys beyond 1–9 (cycling or keymap UI).
-- Optional COCO export.
-
----
-
-## 13) License
+## 10) License
 
 MIT (feel free to adapt to your workflow).
-
----
-
-## 14) Credits & tech
-
-- **Flask** (server), **Pillow** (image metadata), vanilla **JS** + `<canvas>` for overlays.  
-- VOC writer is minimal and battle-tested for Roboflow imports.
-
----
-
-### Appendix: Minimal reverse proxy snippets
-
-**Nginx**
-```nginx
-server {
-  listen 443 ssl http2;
-  server_name your.domain;
-
-  ssl_certificate     /etc/ssl/your.crt;
-  ssl_certificate_key /etc/ssl/your.key;
-
-  location / {
-    proxy_pass         http://127.0.0.1:8000;
-    proxy_set_header   Host $host;
-    proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header   X-Forwarded-Proto https;
-  }
-}
-```
-
-**Caddy**
-```
-your.domain {
-  reverse_proxy 127.0.0.1:8000
-}
-```

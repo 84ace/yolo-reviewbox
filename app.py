@@ -13,13 +13,12 @@ ANNOTATION_DIR = os.environ.get("RB_ANNOTATION_DIR", os.path.abspath("./annotati
 EXPORTS_DIR = os.environ.get("RB_EXPORTS_DIR", os.path.abspath("./exports"))
 PAGE_SIZE_DEFAULT = int(os.environ.get("RB_PAGE_SIZE", "200"))
 ALLOWED_EXTS = {".jpg", ".jpeg", ".png"}
-MAX_IMAGES = 2500
 
 os.makedirs(IMAGE_DIR, exist_ok=True)
 os.makedirs(ANNOTATION_DIR, exist_ok=True)
 os.makedirs(EXPORTS_DIR, exist_ok=True)
 
-app = Flask(__name__)
+app = Flask(__name__, static_url_path='/static', static_folder='static')
 # Respect X-Forwarded-Proto/Host when behind a reverse proxy
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
@@ -28,7 +27,7 @@ def list_images_sorted() -> List[str]:
     for ext in ("*.jpg", "*.jpeg", "*.png", "*.JPG", "*.JPEG", "*.PNG"):
         files.extend(glob.glob(os.path.join(IMAGE_DIR, ext)))
     files.sort(key=lambda p: (-os.path.getmtime(p), os.path.basename(p).lower()))
-    return [os.path.basename(p) for p in files[:MAX_IMAGES]]
+    return [os.path.basename(p) for p in files]
 
 def is_safe_filename(name: str) -> bool:
     if "/" in name or "\\" in name: return False
@@ -273,28 +272,41 @@ def api_import_voc():
 
     try:
         imported_count = 0
-        with zipfile.ZipFile(io.BytesIO(file.read()), 'r') as z:
+        failed_files = []
+        with zipfile.ZipFile(file, 'r') as z:
             for item in z.infolist():
-                if item.is_dir() or '__MACOSX' in item.filename:
-                    continue
+                try:
+                    if item.is_dir() or '__MACOSX' in item.filename:
+                        continue
 
-                base_filename = os.path.basename(item.filename)
-                if not base_filename: continue
+                    base_filename = os.path.basename(item.filename)
+                    if not base_filename: continue
 
-                if any(base_filename.lower().endswith(ext) for ext in ALLOWED_EXTS):
-                    target_dir = IMAGE_DIR
-                    if not is_safe_filename(base_filename): continue
-                    target_path = os.path.join(target_dir, base_filename)
-                    with open(target_path, 'wb') as f: f.write(z.read(item.filename))
-                    imported_count += 1
-                elif base_filename.lower().endswith('.xml'):
-                    target_dir = ANNOTATION_DIR
-                    target_path = os.path.join(target_dir, base_filename)
-                    with open(target_path, 'wb') as f: f.write(z.read(item.filename))
+                    if any(base_filename.lower().endswith(ext) for ext in ALLOWED_EXTS):
+                        target_dir = IMAGE_DIR
+                        if not is_safe_filename(base_filename):
+                            failed_files.append(f"{item.filename} (unsafe name)")
+                            continue
+                        target_path = os.path.join(target_dir, base_filename)
+                        with z.open(item) as zf, open(target_path, 'wb') as f:
+                            shutil.copyfileobj(zf, f)
+                        imported_count += 1
+                    elif base_filename.lower().endswith('.xml'):
+                        target_dir = ANNOTATION_DIR
+                        target_path = os.path.join(target_dir, base_filename)
+                        with z.open(item) as zf, open(target_path, 'wb') as f:
+                            shutil.copyfileobj(zf, f)
+                except Exception as e:
+                    app.logger.error(f"Error importing {item.filename}: {str(e)}")
+                    failed_files.append(item.filename)
 
         update_classes_from_annotations()
 
-        return jsonify({"ok": True, "message": f"Imported {imported_count} images."})
+        message = f"Imported {imported_count} images."
+        if failed_files:
+            message += f" Failed to import {len(failed_files)} files."
+
+        return jsonify({"ok": True, "message": message, "failed_files": failed_files})
     except zipfile.BadZipFile:
         return jsonify({"error": "Invalid or corrupted zip file."}), 400
     except Exception as e:

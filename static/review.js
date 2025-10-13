@@ -76,7 +76,10 @@
     boxes.forEach(b=>{
       const x = Math.min(b.x1,b.x2)*f, y=Math.min(b.y1,b.y2)*f;
       const w = Math.abs(b.x2-b.x1)*f, h=Math.abs(b.y2-b.y1)*f;
-      ctx.save(); ctx.strokeStyle="#ff6a00"; ctx.lineWidth=2; ctx.strokeRect(x,y,w,h);
+      ctx.save();
+      ctx.strokeStyle = colorFromString(b.label);
+      ctx.lineWidth=2;
+      ctx.strokeRect(x,y,w,h);
       if (b.label){ ctx.fillStyle="rgba(0,0,0,0.6)"; const t=b.label, pad=6; const tw=ctx.measureText(t).width+pad*2; const bh=18;
         ctx.fillRect(x, Math.max(0,y-bh), tw, bh); ctx.fillStyle="#fff"; ctx.font="14px system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial"; ctx.fillText(t, x+pad, Math.max(12,y-4)); }
       ctx.restore();
@@ -116,7 +119,9 @@
       lastPos={x:Math.floor(e.clientX-r.left), y:Math.floor(e.clientY-r.top)};
       if(!isDragging) return;
       drawImageOnly(currCtx, currName, "curr").then(()=>{
-        currCtx.save(); currCtx.setLineDash([4,3]); currCtx.strokeStyle="#ff6a00"; currCtx.lineWidth=2;
+        currCtx.save(); currCtx.setLineDash([4,3]);
+        currCtx.strokeStyle = colorFromString(labelSelect.value || "");
+        currCtx.lineWidth=2;
         currCtx.strokeRect(dragStart.x, dragStart.y, lastPos.x-dragStart.x, lastPos.y-dragStart.y);
         currCtx.restore();
       });
