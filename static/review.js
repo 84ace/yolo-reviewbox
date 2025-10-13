@@ -63,8 +63,8 @@
     const prevName = images[idx-1], currName = images[idx], nextName = images[idx+1];
     [prevCtx, currCtx, nextCtx].forEach(ctx=>{ ctx.clearRect(0,0,ctx.canvas.width,ctx.canvas.height); ctx.fillStyle="#0b0b0c"; ctx.fillRect(0,0,ctx.canvas.width,ctx.canvas.height); });
     if (prevName) { if (boxesCache[prevName]) { await drawImageWithBoxesKnown(prevCtx, prevName, "prev", boxesCache[prevName]); } else { await drawImageWithBoxes(prevCtx, prevName, "prev"); } }
-    if (currName) await drawImageOnly(currCtx, currName, "curr");
-    if (nextName) await drawImageOnly(nextCtx, nextName, "next");
+    if (currName) { if (boxesCache[currName]) { await drawImageWithBoxesKnown(currCtx, currName, "curr", boxesCache[currName]); } else { await drawImageWithBoxes(currCtx, currName, "curr"); } }
+    if (nextName) { if (boxesCache[nextName]) { await drawImageWithBoxesKnown(nextCtx, nextName, "next", boxesCache[nextName]); } else { await drawImageWithBoxes(nextCtx, nextName, "next"); } }
     attachDrawHandlers(currName);
   }
 
@@ -101,7 +101,7 @@
     old.parentNode.replaceChild(clone, old);
     currCtx = clone.getContext("2d");
     currCtx.imageSmoothingEnabled = false;
-    drawImageOnly(currCtx, currName, "curr"); // ensure visible immediately
+    drawImageWithBoxes(currCtx, currName, "curr"); // ensure visible immediately
 
     // Remove any previous global mouseup handler (prevents accumulation)
     if (activeMouseUpHandler) {

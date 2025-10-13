@@ -233,11 +233,14 @@
     const res = await fetch("/api/classes");
     const data = await res.json();
     const classes = data.classes || [];
+    classFilter.innerHTML = "<option>All Classes</option>";
     classes.forEach(c => {
-      const opt = document.createElement("option");
-      opt.value = c;
-      opt.textContent = c;
-      classFilter.appendChild(opt);
+      if(c){
+        const opt = document.createElement("option");
+        opt.value = c;
+        opt.textContent = c;
+        classFilter.appendChild(opt);
+      }
     });
   }
 

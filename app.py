@@ -242,6 +242,31 @@ def api_classes():
         with open(CLASSES_FILE, "w") as f: json.dump(classes, f, indent=2)
         return jsonify({"ok": True})
 
+def update_classes_from_annotations():
+    """Scan all XML files and update classes.json"""
+    classes = set()
+    for ann_file in glob.glob(os.path.join(ANNOTATION_DIR, "*.xml")):
+        try:
+            tree = ET.parse(ann_file)
+            for obj in tree.findall("object"):
+                classes.add(obj.findtext("name"))
+        except ET.ParseError:
+            continue
+
+    CLASSES_FILE = os.path.join(ANNOTATION_DIR, "classes.json")
+    existing_classes = []
+    if os.path.exists(CLASSES_FILE):
+        try:
+            with open(CLASSES_FILE, "r") as f:
+                existing_classes = json.load(f)
+        except json.JSONDecodeError:
+            pass # Overwrite if invalid json
+
+    all_classes = sorted(list(classes.union(set(existing_classes))))
+
+    with open(CLASSES_FILE, "w") as f:
+        json.dump(all_classes, f, indent=2)
+
 @app.route("/api/import_voc", methods=["POST"])
 def api_import_voc():
     if 'file' not in request.files:
@@ -259,23 +284,21 @@ def api_import_voc():
                 if item.is_dir() or '__MACOSX' in item.filename:
                     continue
 
-                # Sanitize filename to prevent directory traversal
                 base_filename = os.path.basename(item.filename)
                 if not base_filename: continue
 
-                # Determine if it's an image or annotation and set the correct directory
                 if any(base_filename.lower().endswith(ext) for ext in ALLOWED_EXTS):
                     target_dir = IMAGE_DIR
                     if not is_safe_filename(base_filename): continue
                     target_path = os.path.join(target_dir, base_filename)
-                    with open(target_path, 'wb') as f:
-                        f.write(z.read(item.filename))
+                    with open(target_path, 'wb') as f: f.write(z.read(item.filename))
                     imported_count += 1
                 elif base_filename.lower().endswith('.xml'):
                     target_dir = ANNOTATION_DIR
                     target_path = os.path.join(target_dir, base_filename)
-                    with open(target_path, 'wb') as f:
-                        f.write(z.read(item.filename))
+                    with open(target_path, 'wb') as f: f.write(z.read(item.filename))
+
+        update_classes_from_annotations()
 
         return jsonify({"ok": True, "message": f"Imported {imported_count} images."})
     except zipfile.BadZipFile:
