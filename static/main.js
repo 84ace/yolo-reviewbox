@@ -2,6 +2,8 @@
   const grid = document.getElementById("grid");
   const btnDelete = document.getElementById("btnDelete");
   const btnExport = document.getElementById("btnExport");
+  const btnImport = document.getElementById("btnImport");
+  const importFile = document.getElementById("importFile");
   const btnPrev = document.getElementById("btnPrev");
   const btnNext = document.getElementById("btnNext");
   const pageInfo = document.getElementById("pageInfo");
@@ -180,6 +182,30 @@
     } else { alert("Export failed."); }
   }
 
+  async function importVOC() {
+    if (!importFile.files.length) { alert("Please select a zip file to import."); return; }
+    const file = importFile.files[0];
+    if (!confirm(`Import dataset from ${file.name}? This may overwrite existing images and annotations.`)) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const res = await fetch("/api/import_voc", { method: "POST", body: formData });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        alert(data.message || "Import successful!");
+        fetchImages(); // Refresh the grid
+      } else {
+        alert(`Import failed: ${data.error || 'Unknown error'}`);
+      }
+    } catch (e) {
+      alert(`An error occurred: ${e.message}`);
+    } finally {
+      importFile.value = ""; // Reset file input
+    }
+  }
+
   btnPrev.addEventListener("click", () => { if (state.page > 1) { state.page -= 1; fetchImages(); }});
   btnNext.addEventListener("click", () => {
     const maxPage = Math.max(1, Math.ceil(state.total / state.pageSize));
@@ -187,6 +213,8 @@
   });
   btnDelete.addEventListener("click", deleteSelected);
   btnExport.addEventListener("click", exportVOC);
+  btnImport.addEventListener("click", () => importFile.click());
+  importFile.addEventListener("change", importVOC);
   pageSizeSel.addEventListener("change", () => { state.pageSize = parseInt(pageSizeSel.value, 10); state.page = 1; fetchImages(); });
   thumbSizeSel.addEventListener("change", () => { state.thumb = parseInt(thumbSizeSel.value, 10); applyThumbSize(); render(); });
   filterText.addEventListener("input", (e) => { state.filter = e.target.value; render(); });

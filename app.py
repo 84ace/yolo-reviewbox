@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import os, glob, json, shutil
+import os, glob, json, shutil, zipfile, io
 from datetime import datetime
 from typing import List, Dict, Any
 from flask import Flask, request, jsonify, render_template, send_from_directory, abort
@@ -216,6 +216,47 @@ def api_classes():
         classes = data.get("classes", [])
         with open(CLASSES_FILE, "w") as f: json.dump(classes, f, indent=2)
         return jsonify({"ok": True})
+
+@app.route("/api/import_voc", methods=["POST"])
+def api_import_voc():
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part"}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+    if not file.filename.lower().endswith('.zip'):
+        return jsonify({"error": "Invalid file type, must be a .zip file"}), 400
+
+    try:
+        imported_count = 0
+        with zipfile.ZipFile(io.BytesIO(file.read()), 'r') as z:
+            for item in z.infolist():
+                if item.is_dir() or '__MACOSX' in item.filename:
+                    continue
+
+                # Sanitize filename to prevent directory traversal
+                base_filename = os.path.basename(item.filename)
+                if not base_filename: continue
+
+                # Determine if it's an image or annotation and set the correct directory
+                if 'jpegimages/' in item.filename.lower() and any(base_filename.lower().endswith(ext) for ext in ALLOWED_EXTS):
+                    target_dir = IMAGE_DIR
+                    if not is_safe_filename(base_filename): continue
+                    target_path = os.path.join(target_dir, base_filename)
+                    with open(target_path, 'wb') as f:
+                        f.write(z.read(item.filename))
+                    imported_count += 1
+                elif 'annotations/' in item.filename.lower() and base_filename.lower().endswith('.xml'):
+                    target_dir = ANNOTATION_DIR
+                    target_path = os.path.join(target_dir, base_filename)
+                    with open(target_path, 'wb') as f:
+                        f.write(z.read(item.filename))
+
+        return jsonify({"ok": True, "message": f"Imported {imported_count} images."})
+    except zipfile.BadZipFile:
+        return jsonify({"error": "Invalid or corrupted zip file."}), 400
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
 @app.route("/api/export_voc", methods=["POST"])
 def api_export_voc():
