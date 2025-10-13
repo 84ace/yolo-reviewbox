@@ -204,7 +204,8 @@
       const data = await res.json();
       if (res.ok && data.ok) {
         alert(data.message || "Import successful!");
-        fetchImages(); // Refresh the grid
+        await fetchClasses();
+        await fetchImages();
       } else {
         alert(`Import failed: ${data.error || 'Unknown error'}`);
       }
