@@ -284,12 +284,14 @@ def api_import_voc():
                     target_dir = IMAGE_DIR
                     if not is_safe_filename(base_filename): continue
                     target_path = os.path.join(target_dir, base_filename)
-                    with open(target_path, 'wb') as f: f.write(z.read(item.filename))
+                    with z.open(item) as zf, open(target_path, 'wb') as f:
+                        shutil.copyfileobj(zf, f)
                     imported_count += 1
                 elif base_filename.lower().endswith('.xml'):
                     target_dir = ANNOTATION_DIR
                     target_path = os.path.join(target_dir, base_filename)
-                    with open(target_path, 'wb') as f: f.write(z.read(item.filename))
+                    with z.open(item) as zf, open(target_path, 'wb') as f:
+                        shutil.copyfileobj(zf, f)
 
         update_classes_from_annotations()
 
