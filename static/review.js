@@ -1,4 +1,5 @@
 (() => {
+  const classFilter = document.getElementById("classFilter");
   const labelSelect = document.getElementById("labelSelect");
   const newLabel = document.getElementById("newLabel");
   const addLabelBtn = document.getElementById("addLabelBtn");
@@ -31,7 +32,18 @@
 
   async function loadClasses(){
     const res = await fetch("/api/classes"); const data = await res.json();
-    renderClasses(data.classes || []);
+    const classes = data.classes || [];
+    renderClasses(classes);
+    classFilter.innerHTML = `<option>All Classes</option>
+<option value="__unannotated__">Unannotated</option>
+<option value="__null__">Null</option>
+<option disabled>---</option>`;
+    classes.forEach(c => {
+      const opt = document.createElement("option");
+      opt.value = c;
+      opt.textContent = c;
+      classFilter.appendChild(opt);
+    });
   }
   function renderClasses(classes){
     labelSelect.innerHTML = "";
@@ -45,12 +57,21 @@
     await fetch("/api/classes",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({classes:existing})});
   });
   labelSelect.addEventListener("change", ()=>{ localStorage.setItem("rb-last-label", labelSelect.value || ""); });
+  classFilter.addEventListener("change", () => {
+    idx = 0;
+    loadImages();
+  });
 
   async function loadImages(){
-    const res = await fetch("/api/images?page=1&page_size=2500"); const data = await res.json();
+    let url = `/api/images?page=1&page_size=2500`;
+    if (classFilter.value && classFilter.value !== "All Classes") {
+      url += `&class=${encodeURIComponent(classFilter.value)}`;
+    }
+    const res = await fetch(url); const data = await res.json();
     images = data.images || [];
     const savedIdx = parseInt(localStorage.getItem("rb-review-idx")||"0",10);
     if (!Number.isNaN(savedIdx) && savedIdx>=0 && savedIdx<images.length) idx=savedIdx;
+    else idx = 0;
     await renderTriplet();
   }
 
@@ -117,6 +138,8 @@
     currCtx = clone.getContext("2d");
     currCtx.imageSmoothingEnabled = false;
     drawImageWithBoxes(currCtx, currName, "curr"); // ensure visible immediately
+
+    clone.addEventListener("click", skip);
 
     // Remove any previous global mouseup handler (prevents accumulation)
     if (activeMouseUpHandler) {
@@ -209,6 +232,7 @@
     if (e.key==="ArrowLeft") goBack();
     if (e.key===" "){ e.preventDefault(); skip(); }
     if (e.key==="Delete") deleteCurrent();
+    if (e.key === "n" || e.key === "N") tagAsNull();
     if (e.key>="1" && e.key<="9"){
       const n=parseInt(e.key,10)-1;
       if (n>=0 && n<labelSelect.options.length){
