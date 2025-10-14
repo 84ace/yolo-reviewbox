@@ -134,11 +134,16 @@ def get_unannotated_images() -> List[str]:
     all_images = set(list_images_sorted())
     annotated_images = set()
     for ann_file in glob.glob(os.path.join(annotation_dir, "*.xml")):
-        base, _ = os.path.splitext(os.path.basename(ann_file))
-        # This is not robust, but works for now
-        for ext in ALLOWED_EXTS:
-            annotated_images.add(base + ext)
-            annotated_images.add(base + ext.upper())
+        try:
+            tree = ET.parse(ann_file)
+            # If there are any objects, it's annotated.
+            if len(tree.findall("object")) > 0:
+                filename = tree.findtext("filename")
+                if filename and is_safe_filename(filename):
+                    annotated_images.add(filename)
+        except ET.ParseError:
+            # This file is likely empty or malformed, treat as unannotated
+            continue
 
     unannotated = sorted(list(all_images - annotated_images), key=lambda p: (-os.path.getmtime(os.path.join(image_dir, p)), p.lower()))
     return unannotated
