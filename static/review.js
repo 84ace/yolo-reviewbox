@@ -158,8 +158,6 @@
     currCtx.imageSmoothingEnabled = false;
     drawImageWithBoxes(currCtx, currName, "curr"); // ensure visible immediately
 
-    clone.addEventListener("click", skip);
-
     // Remove any previous global mouseup handler (prevents accumulation)
     if (activeMouseUpHandler) {
       window.removeEventListener("mouseup", activeMouseUpHandler);
