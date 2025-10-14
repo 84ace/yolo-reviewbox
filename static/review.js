@@ -207,7 +207,8 @@
         label: labelSelect.value || ""
       };
       const updatedBoxes = await saveBox(currName, box);
-      annsCache[currName] = { ...annsCache[currName], boxes: updatedBoxes };
+      const oldAnns = annsCache[currName] || {};
+      annsCache[currName] = { ...oldAnns, boxes: updatedBoxes };
       localStorage.setItem("rb-last-label", box.label);
       if (idx < images.length-1) idx += 1;
       await renderTriplet();
@@ -216,11 +217,12 @@
     window.addEventListener("mouseup", onMouseUpOnce);
   }
 
-  async function saveBox(imageName, newBox){
+  async function saveBox(imageName, newBoxOrBoxes){
     try{
       const existingAnns = annsCache[imageName] || { boxes: [] };
       const existingBoxes = (existingAnns.boxes||[]).slice();
-      const finalBoxes = [...existingBoxes, newBox];
+      const newBoxes = Array.isArray(newBoxOrBoxes) ? newBoxOrBoxes : [newBoxOrBoxes];
+      const finalBoxes = [...existingBoxes, ...newBoxes];
       await fetch("/api/annotate", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ image:imageName, boxes: finalBoxes }) });
       return finalBoxes;
     }catch(e){ console.error("Save failed", e); return []; }
