@@ -21,6 +21,7 @@
   const nullHandling = document.getElementById("nullHandling");
   const runExport = document.getElementById("runExport");
   const cancelExport = document.getElementById("cancelExport");
+  const exportSpinner = document.getElementById("exportSpinner");
 
   let state = { page: 1, pageSize: window.appConfig?.pageSize || 200, total: 0,
     images: [], selected: new Set(), lastClickedIndex: null, thumb: 112, filter: "", class: "All Classes" };
@@ -228,31 +229,50 @@
   }
 
   async function runExportLogic() {
-    const classes = Array.from(exportClassList.querySelectorAll("input:checked")).map(cb => cb.value);
-    const remap = [];
-    const remapRows = exportRemap.querySelectorAll("input[type=text]");
-    for (let i = 0; i < remapRows.length; i += 2) {
-      const from = remapRows[i].value.trim();
-      const to = remapRows[i+1].value.trim();
-      if (from && to) {
-        remap.push({from: from.split(",").map(s => s.trim()), to});
+    runExport.disabled = true;
+    exportSpinner.style.display = "flex";
+
+    try {
+      const classes = Array.from(exportClassList.querySelectorAll("input:checked")).map(cb => cb.value);
+      const remap = [];
+      const remapRows = exportRemap.querySelectorAll("input[type=text]");
+      for (let i = 0; i < remapRows.length; i += 2) {
+        const from = remapRows[i].value.trim();
+        const to = remapRows[i+1].value.trim();
+        if (from && to) {
+          remap.push({from: from.split(",").map(s => s.trim()), to});
+        }
       }
+
+      const payload = {
+        classes,
+        remap,
+        null_handling: nullHandling.value,
+      };
+
+      const res = await fetch("/api/export_voc", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (data.ok) {
+        const a = document.createElement("a");
+        a.href = data.zip_url;
+        a.download = data.zip_name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        exportModal.style.display = "none";
+      } else {
+        alert("Export failed.");
+      }
+    } catch (e) {
+      alert(`An error occurred: ${e.message}`);
+    } finally {
+      runExport.disabled = false;
+      exportSpinner.style.display = "none";
     }
-
-    const payload = {
-      classes,
-      remap,
-      null_handling: nullHandling.value,
-    };
-
-    const res = await fetch("/api/export_voc", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)});
-    const data = await res.json();
-    if (data.ok) {
-      const a = document.createElement("a"); a.href = data.zip_url; a.download = data.zip_name;
-      document.body.appendChild(a); a.click(); a.remove();
-      exportModal.style.display = "none";
-    } else { alert("Export failed."); }
   }
 
 
