@@ -63,7 +63,20 @@
     ctx.save();
     ctx.lineWidth = Math.max(1, Math.round(1*f));
     ctx.font = `${Math.max(10, Math.round(10*f))}px system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial`;
+    const isNull = boxes.some(b => b.label === "__null__");
+    if (isNull) {
+      ctx.strokeStyle = "rgba(255, 50, 50, 0.8)";
+      ctx.lineWidth = 2 * f;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(w, h);
+      ctx.stroke();
+      ctx.moveTo(w, 0);
+      ctx.lineTo(0, h);
+      ctx.stroke();
+    }
     boxes.forEach(b => {
+      if (b.label === "__null__") return;
       ctx.strokeStyle = colorFromString(b.label);
       const x = Math.min(b.x1,b.x2)*f, y = Math.min(b.y1,b.y2)*f;
       const bw = Math.abs(b.x2-b.x1)*f, bh = Math.abs(b.y2-b.y1)*f;

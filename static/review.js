@@ -2,6 +2,7 @@
   const labelSelect = document.getElementById("labelSelect");
   const newLabel = document.getElementById("newLabel");
   const addLabelBtn = document.getElementById("addLabelBtn");
+  const nullBtn = document.getElementById("nullBtn");
   const delBtn = document.getElementById("delBtn");
   const backBtn = document.getElementById("backBtn");
   const skipBtn = document.getElementById("skipBtn");
@@ -73,7 +74,23 @@
   async function drawImageWithBoxesKnown(ctx, name, which, boxes){
     await drawImageOnly(ctx, name, which);
     const f = factorFor(which);
+    const isNull = boxes.some(b => b.label === "__null__");
+    if (isNull) {
+      const sz = which === "curr" ? SIZES.curr : SIZES.prev;
+      ctx.save();
+      ctx.strokeStyle = "rgba(255, 50, 50, 0.8)";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(sz, sz);
+      ctx.stroke();
+      ctx.moveTo(sz, 0);
+      ctx.lineTo(0, sz);
+      ctx.stroke();
+      ctx.restore();
+    }
     boxes.forEach(b=>{
+      if (b.label === "__null__") return;
       const x = Math.min(b.x1,b.x2)*f, y=Math.min(b.y1,b.y2)*f;
       const w = Math.abs(b.x2-b.x1)*f, h=Math.abs(b.y2-b.y1)*f;
       ctx.save();
@@ -149,13 +166,14 @@
     window.addEventListener("mouseup", onMouseUpOnce);
   }
 
-  async function saveBox(imageName, box){
+  async function saveBox(imageName, newBoxes){
     try{
       const res = await fetch(`/api/annotation?image=${encodeURIComponent(imageName)}&t=${Date.now()}`, { cache: "no-store" });
       const data = await res.json();
-      const boxes = (data.boxes||[]).slice(); boxes.push(box);
-      await fetch("/api/annotate", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ image:imageName, boxes }) });
-      return boxes;
+      const existingBoxes = (data.boxes||[]).slice();
+      const finalBoxes = Array.isArray(newBoxes) ? newBoxes : [...existingBoxes, newBoxes];
+      await fetch("/api/annotate", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ image:imageName, boxes: finalBoxes }) });
+      return finalBoxes;
     }catch(e){ console.error("Save failed", e); return []; }
   }
 
@@ -171,9 +189,20 @@
     } else { alert("Delete failed."); }
   }
 
+  async function tagAsNull() {
+    const name = images[idx]; if(!name) return;
+    if (!confirm(`Tag ${name} as NULL? This will remove existing boxes.`)) return;
+    const boxes = [{label: "__null__", x1: 0, y1: 0, x2: 0, y2: 0}];
+    await saveBox(name, boxes);
+    boxesCache[name] = boxes;
+    if (idx < images.length-1) idx += 1;
+    await renderTriplet();
+  }
+
   backBtn.addEventListener("click", goBack);
   skipBtn.addEventListener("click", skip);
   delBtn.addEventListener("click", deleteCurrent);
+  nullBtn.addEventListener("click", tagAsNull);
 
   document.addEventListener("keydown",(e)=>{
     if (e.target.tagName==="INPUT" || e.target.tagName==="TEXTAREA") return;
