@@ -226,11 +226,6 @@ def api_get_annotation():
     if not is_safe_filename(img): abort(400, "Invalid image name.")
     axml = voc_xml_path(img)
     boxes = []
-    w, h = -1, -1
-    try:
-        w, h = img_size(os.path.join(get_active_project_dirs()["images"], img))
-    except Exception:
-        pass
     if os.path.exists(axml):
         try:
             root = ET.parse(axml).getroot()
@@ -245,10 +240,10 @@ def api_get_annotation():
                     "y2": int(bnd.findtext("ymax","0")),
                 })
         except Exception as e:
-            resp = jsonify({"boxes": boxes, "w":w, "h":h, "error": str(e)})
+            resp = jsonify({"boxes": boxes, "error": str(e)})
             resp.headers["Cache-Control"] = "no-store, max-age=0"
             return resp, 200
-    resp = jsonify({"boxes": boxes, "w":w, "h":h})
+    resp = jsonify({"boxes": boxes})
     resp.headers["Cache-Control"] = "no-store, max-age=0"
     return resp
 
@@ -257,19 +252,11 @@ def api_annotations_bulk():
     data = request.get_json(force=True, silent=True) or {}
     images = data.get("images", [])
     out = {}
-    dirs = get_active_project_dirs()
-    image_dir = dirs["images"]
     for name in images:
         if not is_safe_filename(name):
             continue
         axml = voc_xml_path(name)
         boxes = []
-        w,h = -1,-1
-        try:
-            w, h = img_size(os.path.join(image_dir, name))
-        except Exception:
-            pass
-
         if os.path.exists(axml):
             try:
                 root = ET.parse(axml).getroot()
@@ -285,7 +272,7 @@ def api_annotations_bulk():
                     })
             except Exception:
                 boxes = []
-        out[name] = {"boxes": boxes, "w":w, "h":h}
+        out[name] = {"boxes": boxes}
     resp = jsonify({"items": out})
     resp.headers["Cache-Control"] = "no-store, max-age=0"
     return resp

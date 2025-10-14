@@ -83,47 +83,35 @@
     attachDrawHandlers(currName);
   }
 
-  function drawImageToCanvas(ctx, img, w, h){
-    const cw = ctx.canvas.width;
-    const ch = ctx.canvas.height;
-    const scale = Math.min(cw/w, ch/h);
-    const dw = w*scale;
-    const dh = h*scale;
-    const dx = (cw-dw)/2;
-    const dy = (ch-dh)/2;
-    ctx.drawImage(img, dx, dy, dw, dh);
-    return {dx, dy, scale};
+  function drawImageToCanvas(ctx, img, which){
+    const sz = which==="curr" ? SIZES.curr : SIZES.prev;
+    ctx.drawImage(img, 0, 0, sz, sz);
   }
   async function drawImageOnly(ctx, name, which){
-    const img = new Image(); img.src = imgUrl(name);
-    await img.decode().catch(()=>{});
-    const {naturalWidth, naturalHeight} = img;
-    return drawImageToCanvas(ctx, img, naturalWidth, naturalHeight);
+    const img = new Image(); img.src = imgUrl(name); await img.decode().catch(()=>{}); drawImageToCanvas(ctx, img, which);
   }
   async function drawImageWithBoxesKnown(ctx, name, which, boxes){
-    const img = new Image(); img.src = imgUrl(name);
-    await img.decode().catch(()=>{});
-    const {naturalWidth, naturalHeight} = img;
-    const {dx, dy, scale} = drawImageToCanvas(ctx, img, naturalWidth, naturalHeight);
-
+    await drawImageOnly(ctx, name, which);
+    const f = factorFor(which);
     const isNull = boxes.some(b => b.label === "__null__");
     if (isNull) {
+      const sz = which === "curr" ? SIZES.curr : SIZES.prev;
       ctx.save();
       ctx.strokeStyle = "rgba(255, 50, 50, 0.8)";
       ctx.lineWidth = 4;
       ctx.beginPath();
-      ctx.moveTo(dx, dy);
-      ctx.lineTo(dx + naturalWidth*scale, dy + naturalHeight*scale);
+      ctx.moveTo(0, 0);
+      ctx.lineTo(sz, sz);
       ctx.stroke();
-      ctx.moveTo(dx + naturalWidth*scale, dy);
-      ctx.lineTo(dx, dy + naturalHeight*scale);
+      ctx.moveTo(sz, 0);
+      ctx.lineTo(0, sz);
       ctx.stroke();
       ctx.restore();
     }
     boxes.forEach(b=>{
       if (b.label === "__null__") return;
-      const x = dx + Math.min(b.x1,b.x2)*scale, y= dy + Math.min(b.y1,b.y2)*scale;
-      const w = Math.abs(b.x2-b.x1)*scale, h = Math.abs(b.y2-b.y1)*scale;
+      const x = Math.min(b.x1,b.x2)*f, y=Math.min(b.y1,b.y2)*f;
+      const w = Math.abs(b.x2-b.x1)*f, h=Math.abs(b.y2-b.y1)*f;
       ctx.save();
       ctx.strokeStyle = colorFromString(b.label);
       ctx.lineWidth=2;
@@ -181,24 +169,12 @@
       if(!isDragging) return;
       isDragging=false; window.removeEventListener("mouseup", onMouseUpOnce); activeMouseUpHandler = null;
       if(!dragStart || !lastPos) return;
-
-      const img = new Image(); img.src = imgUrl(currName);
-      await img.decode().catch(()=>{});
-      const {naturalWidth, naturalHeight} = img;
-
-      const canvas = currCtx.canvas;
-      const {dx, dy, scale} = drawImageToCanvas(currCtx, img, naturalWidth, naturalHeight);
-
-      const x1 = (dragStart.x - dx) / scale;
-      const y1 = (dragStart.y - dy) / scale;
-      const x2 = (lastPos.x - dx) / scale;
-      const y2 = (lastPos.y - dy) / scale;
-
+      const f = factorFor("curr");
       const box = {
-        x1: Math.round(Math.max(0, Math.min(naturalWidth, x1))),
-        y1: Math.round(Math.max(0, Math.min(naturalHeight, y1))),
-        x2: Math.round(Math.max(0, Math.min(naturalWidth, x2))),
-        y2: Math.round(Math.max(0, Math.min(naturalHeight, y2))),
+        x1: Math.max(0, Math.min(base-1, Math.round(dragStart.x/f))),
+        y1: Math.max(0, Math.min(base-1, Math.round(dragStart.y/f))),
+        x2: Math.max(0, Math.min(base-1, Math.round(lastPos.x/f))),
+        y2: Math.max(0, Math.min(base-1, Math.round(lastPos.y/f))),
         label: labelSelect.value || ""
       };
       const updatedBoxes = await saveBox(currName, box);
