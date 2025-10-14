@@ -30,9 +30,11 @@
 
 <section class="review-wrap">
   <div class="controls">
+    <select id="classFilter"></select>
     <select id="labelSelect"></select>
     <input id="newLabel" placeholder="new class…" />
     <button id="addLabelBtn">Add Class</button>
+    <button id="nullBtn" class="danger" title="Tag as Null">Tag as Null</button>
     <button id="delBtn" title="Delete current (Del)">Delete</button>
     <button id="backBtn" title="Back (←)">◀ Back</button>
     <button id="skipBtn" title="Skip (Space)">Skip ▶</button>
@@ -56,9 +58,9 @@
   </div>
 
   <div class="hint">
-    Drag to draw a box — it saves instantly, uses the <b>last label</b>, and auto-advances.<br/>
+    Drag to draw a box — it saves instantly, uses the <b>last label</b>, and auto-advances. Click image to skip.<br/>
     Quick keys:
-    <span class="kbd">1–9</span> label, <span class="kbd">←</span> back, <span class="kbd">Space</span> skip, <span class="kbd">Del</span> delete.
+    <span class="kbd">1–9</span> label, <span class="kbd">←</span> back, <span class="kbd">Space</span> skip, <span class="kbd">Del</span> delete, <span class="kbd">N</span> tag as null.
   </div>
 </section>
 

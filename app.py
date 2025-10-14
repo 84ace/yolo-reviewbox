@@ -92,18 +92,42 @@ def annotate_page():
     w,h = img_size(path)
     return render_template("annotate.html", image_name=img, image_w=w, image_h=h, app_title=APP_TITLE)
 
+def get_unannotated_images() -> List[str]:
+    all_images = set(list_images_sorted())
+    annotated_images = set()
+    for ann_file in glob.glob(os.path.join(ANNOTATION_DIR, "*.xml")):
+        base, _ = os.path.splitext(os.path.basename(ann_file))
+        # This is not robust, but works for now
+        for ext in ALLOWED_EXTS:
+            annotated_images.add(base + ext)
+            annotated_images.add(base + ext.upper())
+
+    unannotated = sorted(list(all_images - annotated_images), key=lambda p: (-os.path.getmtime(os.path.join(IMAGE_DIR, p)), p.lower()))
+    return unannotated
+
 def get_images_by_class(class_name: str) -> List[str]:
     img_files = set()
+    if class_name == "__unannotated__":
+        return get_unannotated_images()
+
     for ann_file in glob.glob(os.path.join(ANNOTATION_DIR, "*.xml")):
         try:
             tree = ET.parse(ann_file)
             root = tree.getroot()
-            for obj in root.findall("object"):
-                if obj.findtext("name") == class_name:
+
+            if class_name == "__null__":
+                if any(o.findtext("name") == "__null__" for o in root.findall("object")):
                     filename = root.findtext("filename")
                     if filename:
                         img_files.add(filename)
-                    break
+            else:
+                for obj in root.findall("object"):
+                    if obj.findtext("name") == class_name:
+                        filename = root.findtext("filename")
+                        if filename:
+                            img_files.add(filename)
+                        break
+
         except ET.ParseError:
             continue
 
@@ -249,7 +273,7 @@ def update_classes_from_annotations():
             tree = ET.parse(ann_file)
             for obj in tree.findall("object"):
                 class_name = obj.findtext("name")
-                if class_name:
+                if class_name and class_name != "__null__":
                     classes.add(class_name)
         except ET.ParseError:
             continue
@@ -312,29 +336,140 @@ def api_import_voc():
     except Exception as e:
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
+@app.route("/api/import_images", methods=["POST"])
+def api_import_images():
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part"}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+    if not file.filename.lower().endswith('.zip'):
+        return jsonify({"error": "Invalid file type, must be a .zip file"}), 400
+
+    try:
+        imported_count = 0
+        failed_files = []
+        with zipfile.ZipFile(file, 'r') as z:
+            for item in z.infolist():
+                try:
+                    if item.is_dir() or '__MACOSX' in item.filename:
+                        continue
+                    base_filename = os.path.basename(item.filename)
+                    if not base_filename: continue
+                    if any(base_filename.lower().endswith(ext) for ext in ALLOWED_EXTS):
+                        if not is_safe_filename(base_filename):
+                            failed_files.append(f"{item.filename} (unsafe name)")
+                            continue
+                        target_path = os.path.join(IMAGE_DIR, base_filename)
+                        with z.open(item) as zf, open(target_path, 'wb') as f:
+                            shutil.copyfileobj(zf, f)
+                        imported_count += 1
+                except Exception as e:
+                    app.logger.error(f"Error importing {item.filename}: {str(e)}")
+                    failed_files.append(item.filename)
+
+        message = f"Imported {imported_count} images."
+        if failed_files:
+            message += f" Failed to import {len(failed_files)} files."
+
+        return jsonify({"ok": True, "message": message, "failed_files": failed_files})
+    except zipfile.BadZipFile:
+        return jsonify({"error": "Invalid or corrupted zip file."}), 400
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+@app.route("/api/export_options", methods=["GET"])
+def api_export_options():
+    CLASSES_FILE = os.path.join(ANNOTATION_DIR, "classes.json")
+    if os.path.exists(CLASSES_FILE):
+        try:
+            with open(CLASSES_FILE) as f:
+                classes = json.load(f)
+            return jsonify({"classes": classes})
+        except Exception:
+            pass
+    return jsonify({"classes": []})
+
 @app.route("/api/export_voc", methods=["POST"])
 def api_export_voc():
     data = request.get_json(force=True, silent=True) or {}
-    annotated_only = bool(data.get("annotated_only", True))
+    export_classes = data.get("classes", [])
+    remap = data.get("remap", [])
+    null_handling = data.get("null_handling", "unclassified")
+
+    remap_dict = {}
+    for r in remap:
+        for f in r.get("from", []):
+            remap_dict[f] = r.get("to")
+
     ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     out_root = os.path.join(EXPORTS_DIR, f"VOC_{ts}")
     pj = os.path.join(out_root, "JPEGImages")
     pa = os.path.join(out_root, "Annotations")
     pm = os.path.join(out_root, "ImageSets", "Main")
     os.makedirs(pj, exist_ok=True); os.makedirs(pa, exist_ok=True); os.makedirs(pm, exist_ok=True)
-    imgs = list_images_sorted(); kept = []
+
+    imgs = list_images_sorted()
+    kept = []
+
     for name in imgs:
         src_img = os.path.join(IMAGE_DIR, name)
         axml_src = voc_xml_path(name)
-        if annotated_only and not os.path.exists(axml_src): continue
+
+        if not os.path.exists(axml_src):
+            continue
+
         try:
+            tree = ET.parse(axml_src)
+            root = tree.getroot()
+            objects = root.findall("object")
+
+            is_null = any(o.findtext("name") == "__null__" for o in objects)
+
+            if is_null:
+                if null_handling == "exclude":
+                    continue
+                # For "unclassified", we just don't add an annotation
+                shutil.copy2(src_img, os.path.join(pj, name))
+                kept.append(name)
+                continue
+
+            filtered_objects = []
+            for obj in objects:
+                original_class = obj.findtext("name")
+                if original_class in export_classes:
+                    filtered_objects.append(obj)
+
+            if not filtered_objects:
+                continue
+
+            # Remap classes
+            for obj in filtered_objects:
+                original_class = obj.findtext("name")
+                if original_class in remap_dict:
+                    obj.find("name").text = remap_dict[original_class]
+
+            # Write the modified XML
+            new_tree = ET.ElementTree(root)
+            # Remove old objects and add new ones
+            for obj in objects:
+                root.remove(obj)
+            for obj in filtered_objects:
+                root.append(obj)
+
+            with open(os.path.join(pa, os.path.basename(axml_src)), "wb") as f:
+                new_tree.write(f, encoding="utf-8")
+
             shutil.copy2(src_img, os.path.join(pj, name))
-            if os.path.exists(axml_src):
-                shutil.copy2(axml_src, os.path.join(pa, os.path.basename(axml_src)))
             kept.append(name)
-        except Exception: pass
+
+        except Exception as e:
+            app.logger.error(f"Error processing {name} for export: {e}")
+            pass
+
     with open(os.path.join(pm, "train.txt"), "w") as f:
         for k in kept: f.write(os.path.splitext(k)[0] + "\n")
+
     zip_path = os.path.join(EXPORTS_DIR, f"VOC_{ts}.zip")
     shutil.make_archive(base_name=zip_path[:-4], format="zip", root_dir=out_root)
     return jsonify({"ok": True, "count": len(kept), "zip_name": os.path.basename(zip_path), "zip_url": f"/exports/{os.path.basename(zip_path)}"})

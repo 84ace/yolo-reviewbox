@@ -6,7 +6,9 @@
   const labelSelect = document.getElementById("labelSelect");
   const newLabel = document.getElementById("newLabel");
   const addLabelBtn = document.getElementById("addLabelBtn");
+  const nullBtn = document.getElementById("nullBtn");
   const saveBtn = document.getElementById("saveBtn");
+  const goBack = document.getElementById("goBack");
 
   const W = window.annConfig.w, H = window.annConfig.h;
   canvas.width = W; canvas.height = H;
@@ -122,5 +124,20 @@
   }
 
   saveBtn.addEventListener("click", saveAnnotations);
+
+  nullBtn.addEventListener("click", () => {
+    boxes = [{label: "__null__", x1: 0, y1: 0, x2: 0, y2: 0}];
+    saveAnnotations();
+  });
+
+  goBack.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (document.referrer) {
+      window.location.href = document.referrer;
+    } else {
+      history.back();
+    }
+  });
+
   loadClasses(); loadBoxes();
 })();

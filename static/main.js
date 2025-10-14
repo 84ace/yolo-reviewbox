@@ -4,6 +4,8 @@
   const btnExport = document.getElementById("btnExport");
   const btnImport = document.getElementById("btnImport");
   const importFile = document.getElementById("importFile");
+  const btnImportImages = document.getElementById("btnImportImages");
+  const importImagesFile = document.getElementById("importImagesFile");
   const btnPrev = document.getElementById("btnPrev");
   const btnNext = document.getElementById("btnNext");
   const pageInfo = document.getElementById("pageInfo");
@@ -11,6 +13,14 @@
   const thumbSizeSel = document.getElementById("thumbSize");
   const filterText = document.getElementById("filterText");
   const classFilter = document.getElementById("classFilter");
+
+  const exportModal = document.getElementById("exportModal");
+  const exportClassList = document.getElementById("exportClassList");
+  const exportRemap = document.getElementById("exportRemap");
+  const addRemapRow = document.getElementById("addRemapRow");
+  const nullHandling = document.getElementById("nullHandling");
+  const runExport = document.getElementById("runExport");
+  const cancelExport = document.getElementById("cancelExport");
 
   let state = { page: 1, pageSize: window.appConfig?.pageSize || 200, total: 0,
     images: [], selected: new Set(), lastClickedIndex: null, thumb: 112, filter: "", class: "All Classes" };
@@ -53,7 +63,20 @@
     ctx.save();
     ctx.lineWidth = Math.max(1, Math.round(1*f));
     ctx.font = `${Math.max(10, Math.round(10*f))}px system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial`;
+    const isNull = boxes.some(b => b.label === "__null__");
+    if (isNull) {
+      ctx.strokeStyle = "rgba(255, 50, 50, 0.8)";
+      ctx.lineWidth = 2 * f;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(w, h);
+      ctx.stroke();
+      ctx.moveTo(w, 0);
+      ctx.lineTo(0, h);
+      ctx.stroke();
+    }
     boxes.forEach(b => {
+      if (b.label === "__null__") return;
       ctx.strokeStyle = colorFromString(b.label);
       const x = Math.min(b.x1,b.x2)*f, y = Math.min(b.y1,b.y2)*f;
       const bw = Math.abs(b.x2-b.x1)*f, bh = Math.abs(b.y2-b.y1)*f;
@@ -180,16 +203,58 @@
     await fetchImages();
   }
 
+  function addRemapRowLogic() {
+    const from = document.createElement("input"); from.type = "text"; from.placeholder = "comma,separated,list";
+    const to = document.createElement("input"); to.type = "text"; to.placeholder = "new_class";
+    const arrow = document.createElement("span"); arrow.textContent = "→";
+    exportRemap.appendChild(from);
+    exportRemap.appendChild(arrow);
+    exportRemap.appendChild(to);
+  }
+
   async function exportVOC() {
-    if (!confirm("Create a Pascal VOC zip (annotated images only) for Roboflow?")) return;
+    const res = await fetch("/api/export_options");
+    const data = await res.json();
+    const classes = data.classes || [];
+    exportClassList.innerHTML = "";
+    classes.forEach(c => {
+      const label = document.createElement("label");
+      const cb = document.createElement("input"); cb.type = "checkbox"; cb.value = c; cb.checked = true;
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(c));
+      exportClassList.appendChild(label);
+    });
+    exportModal.style.display = "flex";
+  }
+
+  async function runExportLogic() {
+    const classes = Array.from(exportClassList.querySelectorAll("input:checked")).map(cb => cb.value);
+    const remap = [];
+    const remapRows = exportRemap.querySelectorAll("input[type=text]");
+    for (let i = 0; i < remapRows.length; i += 2) {
+      const from = remapRows[i].value.trim();
+      const to = remapRows[i+1].value.trim();
+      if (from && to) {
+        remap.push({from: from.split(",").map(s => s.trim()), to});
+      }
+    }
+
+    const payload = {
+      classes,
+      remap,
+      null_handling: nullHandling.value,
+    };
+
     const res = await fetch("/api/export_voc", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ annotated_only: true })});
+      body: JSON.stringify(payload)});
     const data = await res.json();
     if (data.ok) {
       const a = document.createElement("a"); a.href = data.zip_url; a.download = data.zip_name;
       document.body.appendChild(a); a.click(); a.remove();
+      exportModal.style.display = "none";
     } else { alert("Export failed."); }
   }
+
 
   async function importVOC() {
     if (!importFile.files.length) { alert("Please select a zip file to import."); return; }
@@ -220,6 +285,34 @@
     }
   }
 
+  async function importImages() {
+    if (!importImagesFile.files.length) { alert("Please select a zip file to import."); return; }
+    const file = importImagesFile.files[0];
+    if (!confirm(`Import images from ${file.name}?`)) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const res = await fetch("/api/import_images", { method: "POST", body: formData });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        let alertMsg = data.message || "Import finished.";
+        if (data.failed_files && data.failed_files.length > 0) {
+          alertMsg += `\n\nCould not import:\n- ${data.failed_files.join("\n- ")}`;
+        }
+        alert(alertMsg);
+        await fetchImages();
+      } else {
+        alert(`Import failed: ${data.error || 'Unknown error'}`);
+      }
+    } catch (e) {
+      alert(`An error occurred: ${e.message}`);
+    } finally {
+      importImagesFile.value = ""; // Reset file input
+    }
+  }
+
   btnPrev.addEventListener("click", () => { if (state.page > 1) { state.page -= 1; fetchImages(); }});
   btnNext.addEventListener("click", () => {
     const maxPage = Math.max(1, Math.ceil(state.total / state.pageSize));
@@ -229,6 +322,11 @@
   btnExport.addEventListener("click", exportVOC);
   btnImport.addEventListener("click", () => importFile.click());
   importFile.addEventListener("change", importVOC);
+  addRemapRow.addEventListener("click", addRemapRowLogic);
+  runExport.addEventListener("click", runExportLogic);
+  cancelExport.addEventListener("click", () => { exportModal.style.display = "none"; });
+  btnImportImages.addEventListener("click", () => importImagesFile.click());
+  importImagesFile.addEventListener("change", importImages);
   pageSizeSel.addEventListener("change", () => { state.pageSize = parseInt(pageSizeSel.value, 10); state.page = 1; fetchImages(); });
   thumbSizeSel.addEventListener("change", () => { state.thumb = parseInt(thumbSizeSel.value, 10); applyThumbSize(); render(); });
   filterText.addEventListener("input", (e) => { state.filter = e.target.value; render(); });
@@ -238,7 +336,10 @@
     const res = await fetch("/api/classes");
     const data = await res.json();
     const classes = data.classes || [];
-    classFilter.innerHTML = "<option>All Classes</option>";
+    classFilter.innerHTML = `<option>All Classes</option>
+<option value="__unannotated__">Unannotated</option>
+<option value="__null__">Null</option>
+<option disabled>---</option>`;
     classes.forEach(c => {
       if(c){
         const opt = document.createElement("option");
