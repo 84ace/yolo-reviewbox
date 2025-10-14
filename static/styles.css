@@ -19,8 +19,9 @@ button.primary { background: #ff6a00; border-color: #ff6a00; color: #111; font-w
 .foot { padding: 10px 14px; color: #9b9ba3; border-top: 1px solid #222; }
 
 .annotate-wrap { display: grid; grid-template-columns: auto 260px; gap: 12px; padding: 12px; }
-.canvas-wrap { position: relative; width: fit-content; border: 1px solid #2a2a2e; border-radius: 10px; overflow: hidden; }
-#canvas { position: absolute; left: 0; top: 0; }
+.canvas-wrap { position: relative; width: fit-content; border: 1px solid #2a2a2e; border-radius: 10px; overflow: hidden; line-height: 0; }
+.canvas-wrap img, .canvas-wrap canvas { max-width: 100%; height: auto; }
+#canvas { position: absolute; left: 0; top: 0; cursor: crosshair; }
 .box-list { border: 1px solid #2a2ae; border-radius: 10px; padding: 8px; background: #121214; }
 .box-list .hdr { font-weight: 600; margin-bottom: 6px; }
 .box-list ul { list-style: none; padding: 0; margin: 0; max-height: calc(100vh - 220px); overflow: auto; }

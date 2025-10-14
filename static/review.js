@@ -19,15 +19,10 @@
   currCtx.imageSmoothingEnabled = false;
   nextCtx.imageSmoothingEnabled = false;
 
-  const base = window.reviewConfig.baseSize || 224;
-  const SIZES = { prev: window.reviewConfig.leftSize || base*2, curr: window.reviewConfig.centerSize || base*3, next: window.reviewConfig.rightSize || base*2 };
-
   let images = []; let idx = 0;
-  const boxesCache = {}; // name -> boxes[]
+  const annsCache = {}; // name -> {boxes,w,h}
   let isDragging = false; let dragStart = null; let lastPos = null;
   let activeMouseUpHandler = null;
-
-  function factorFor(which){ return which === "curr" ? SIZES.curr / base : SIZES.prev / base; }
   function imgUrl(n){ return `/image/${encodeURIComponent(n)}`; }
 
   async function loadClasses(){
@@ -76,57 +71,83 @@
   async function renderTriplet(){
     localStorage.setItem("rb-review-idx", String(idx));
     const prevName = images[idx-1], currName = images[idx], nextName = images[idx+1];
-    [prevCtx, currCtx, nextCtx].forEach(ctx=>{ ctx.clearRect(0,0,ctx.canvas.width,ctx.canvas.height); ctx.fillStyle="#0b0b0c"; ctx.fillRect(0,0,ctx.canvas.width,ctx.canvas.height); });
-    if (prevName) { if (boxesCache[prevName]) { await drawImageWithBoxesKnown(prevCtx, prevName, "prev", boxesCache[prevName]); } else { await drawImageWithBoxes(prevCtx, prevName, "prev"); } }
-    if (currName) { if (boxesCache[currName]) { await drawImageWithBoxesKnown(currCtx, currName, "curr", boxesCache[currName]); } else { await drawImageWithBoxes(currCtx, currName, "curr"); } }
-    if (nextName) { if (boxesCache[nextName]) { await drawImageWithBoxesKnown(nextCtx, nextName, "next", boxesCache[nextName]); } else { await drawImageWithBoxes(nextCtx, nextName, "next"); } }
+    [prevCtx, currCtx, nextCtx].forEach(ctx=>{
+      const canvas = ctx.canvas;
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.fillStyle="#0b0b0c";
+      ctx.fillRect(0,0,canvas.width,canvas.height);
+    });
+    if (prevName) { await drawImageWithBoxes(prevCtx, prevName); }
+    if (currName) { await drawImageWithBoxes(currCtx, currName); }
+    if (nextName) { await drawImageWithBoxes(nextCtx, nextName); }
     attachDrawHandlers(currName);
   }
+  async function drawImageWithBoxes(ctx, name){
+    const img = new Image();
+    img.src = imgUrl(name);
+    await img.decode().catch(e => console.error("Image decode error:", e));
 
-  function drawImageToCanvas(ctx, img, which){
-    const sz = which==="curr" ? SIZES.curr : SIZES.prev;
-    ctx.drawImage(img, 0, 0, sz, sz);
-  }
-  async function drawImageOnly(ctx, name, which){
-    const img = new Image(); img.src = imgUrl(name); await img.decode().catch(()=>{}); drawImageToCanvas(ctx, img, which);
-  }
-  async function drawImageWithBoxesKnown(ctx, name, which, boxes){
-    await drawImageOnly(ctx, name, which);
-    const f = factorFor(which);
+    const { naturalWidth: w, naturalHeight: h } = img;
+    const canvas = ctx.canvas;
+    const maxH = 450;
+    const scale = maxH / h;
+    const dw = w * scale;
+    const dh = h * scale;
+    canvas.width = dw;
+    canvas.height = dh;
+
+    ctx.drawImage(img, 0, 0, dw, dh);
+
+    let anns = annsCache[name];
+    if (!anns) {
+      try {
+        const res = await fetch(`/api/annotation?image=${encodeURIComponent(name)}&t=${Date.now()}`, { cache: "no-store" });
+        anns = await res.json();
+        annsCache[name] = anns;
+      } catch (e) {
+        console.error("Failed to fetch annotations:", e);
+        anns = { boxes: [], w, h };
+      }
+    }
+
+    const { boxes } = anns;
     const isNull = boxes.some(b => b.label === "__null__");
     if (isNull) {
-      const sz = which === "curr" ? SIZES.curr : SIZES.prev;
       ctx.save();
       ctx.strokeStyle = "rgba(255, 50, 50, 0.8)";
       ctx.lineWidth = 4;
       ctx.beginPath();
       ctx.moveTo(0, 0);
-      ctx.lineTo(sz, sz);
+      ctx.lineTo(dw, dh);
       ctx.stroke();
-      ctx.moveTo(sz, 0);
-      ctx.lineTo(0, sz);
+      ctx.moveTo(dw, 0);
+      ctx.lineTo(0, dh);
       ctx.stroke();
       ctx.restore();
     }
-    boxes.forEach(b=>{
+
+    boxes.forEach(b => {
       if (b.label === "__null__") return;
-      const x = Math.min(b.x1,b.x2)*f, y=Math.min(b.y1,b.y2)*f;
-      const w = Math.abs(b.x2-b.x1)*f, h=Math.abs(b.y2-b.y1)*f;
+      const x = Math.min(b.x1, b.x2) * scale;
+      const y = Math.min(b.y1, b.y2) * scale;
+      const bw = Math.abs(b.x2 - b.x1) * scale;
+      const bh = Math.abs(b.y2 - b.y1) * scale;
       ctx.save();
       ctx.strokeStyle = colorFromString(b.label);
-      ctx.lineWidth=2;
-      ctx.strokeRect(x,y,w,h);
-      if (b.label){ ctx.fillStyle="rgba(0,0,0,0.6)"; const t=b.label, pad=6; const tw=ctx.measureText(t).width+pad*2; const bh=18;
-        ctx.fillRect(x, Math.max(0,y-bh), tw, bh); ctx.fillStyle="#fff"; ctx.font="14px system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial"; ctx.fillText(t, x+pad, Math.max(12,y-4)); }
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x, y, bw, bh);
+      if (b.label) {
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        const t = b.label, pad = 6;
+        const tw = ctx.measureText(t).width + pad * 2;
+        const boxH = 18;
+        ctx.fillRect(x, Math.max(0, y - boxH), tw, boxH);
+        ctx.fillStyle = "#fff";
+        ctx.font = "14px system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial";
+        ctx.fillText(t, x + pad, Math.max(12, y - 4));
+      }
       ctx.restore();
     });
-  }
-  async function drawImageWithBoxes(ctx, name, which){
-    await drawImageOnly(ctx, name, which);
-    try{
-      const res = await fetch(`/api/annotation?image=${encodeURIComponent(name)}&t=${Date.now()}`, { cache: "no-store" }); const data = await res.json();
-      const arr = (data.boxes||[]); boxesCache[name] = arr; await drawImageWithBoxesKnown(ctx, name, which, arr);
-    }catch{}
   }
 
   function attachDrawHandlers(currName){
@@ -136,8 +157,6 @@
     currCtx = clone.getContext("2d");
     currCtx.imageSmoothingEnabled = false;
     drawImageWithBoxes(currCtx, currName, "curr"); // ensure visible immediately
-
-    clone.addEventListener("click", skip);
 
     // Remove any previous global mouseup handler (prevents accumulation)
     if (activeMouseUpHandler) {
@@ -156,7 +175,7 @@
       const r=clone.getBoundingClientRect();
       lastPos={x:Math.floor(e.clientX-r.left), y:Math.floor(e.clientY-r.top)};
       if(!isDragging) return;
-      drawImageOnly(currCtx, currName, "curr").then(()=>{
+      drawImageWithBoxes(currCtx, currName).then(()=>{
         currCtx.save(); currCtx.setLineDash([4,3]);
         currCtx.strokeStyle = colorFromString(labelSelect.value || "");
         currCtx.lineWidth=2;
@@ -169,16 +188,27 @@
       if(!isDragging) return;
       isDragging=false; window.removeEventListener("mouseup", onMouseUpOnce); activeMouseUpHandler = null;
       if(!dragStart || !lastPos) return;
-      const f = factorFor("curr");
+
+      const canvas = currCtx.canvas;
+      const { width: dw, height: dh } = canvas;
+      const { w, h } = annsCache[currName] || { w: dw, h: dh };
+      const scale = dh / h;
+
+      const x1 = dragStart.x / scale;
+      const y1 = dragStart.y / scale;
+      const x2 = lastPos.x / scale;
+      const y2 = lastPos.y / scale;
+
       const box = {
-        x1: Math.max(0, Math.min(base-1, Math.round(dragStart.x/f))),
-        y1: Math.max(0, Math.min(base-1, Math.round(dragStart.y/f))),
-        x2: Math.max(0, Math.min(base-1, Math.round(lastPos.x/f))),
-        y2: Math.max(0, Math.min(base-1, Math.round(lastPos.y/f))),
+        x1: Math.round(Math.max(0, Math.min(w, x1))),
+        y1: Math.round(Math.max(0, Math.min(h, y1))),
+        x2: Math.round(Math.max(0, Math.min(w, x2))),
+        y2: Math.round(Math.max(0, Math.min(h, y2))),
         label: labelSelect.value || ""
       };
       const updatedBoxes = await saveBox(currName, box);
-      boxesCache[currName] = updatedBoxes;
+      const oldAnns = annsCache[currName] || {};
+      annsCache[currName] = { ...oldAnns, boxes: updatedBoxes };
       localStorage.setItem("rb-last-label", box.label);
       if (idx < images.length-1) idx += 1;
       await renderTriplet();
@@ -187,12 +217,12 @@
     window.addEventListener("mouseup", onMouseUpOnce);
   }
 
-  async function saveBox(imageName, newBoxes){
+  async function saveBox(imageName, newBoxOrBoxes){
     try{
-      const res = await fetch(`/api/annotation?image=${encodeURIComponent(imageName)}&t=${Date.now()}`, { cache: "no-store" });
-      const data = await res.json();
-      const existingBoxes = (data.boxes||[]).slice();
-      const finalBoxes = Array.isArray(newBoxes) ? newBoxes : [...existingBoxes, newBoxes];
+      const existingAnns = annsCache[imageName] || { boxes: [] };
+      const existingBoxes = (existingAnns.boxes||[]).slice();
+      const newBoxes = Array.isArray(newBoxOrBoxes) ? newBoxOrBoxes : [newBoxOrBoxes];
+      const finalBoxes = [...existingBoxes, ...newBoxes];
       await fetch("/api/annotate", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ image:imageName, boxes: finalBoxes }) });
       return finalBoxes;
     }catch(e){ console.error("Save failed", e); return []; }
@@ -213,8 +243,8 @@
   async function tagAsNull() {
     const name = images[idx]; if(!name) return;
     const boxes = [{label: "__null__", x1: 0, y1: 0, x2: 0, y2: 0}];
-    await saveBox(name, boxes);
-    boxesCache[name] = boxes;
+    const updatedBoxes = await saveBox(name, boxes);
+    annsCache[name] = { ...annsCache[name], boxes: updatedBoxes };
     if (idx < images.length-1) idx += 1;
     await renderTriplet();
   }

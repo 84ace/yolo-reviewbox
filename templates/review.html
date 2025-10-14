@@ -7,8 +7,9 @@
   <link rel="stylesheet" href="/static/styles.css" />
   <style>
     .review-wrap { display: grid; grid-template-columns: 1fr; gap: 10px; padding: 10px; }
-    .row { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: center; }
-    .pane { display: flex; justify-content: center; align-items: center; padding: 6px; background: #121214; border: 1px solid #2a2a2e; border-radius: 10px; min-height: 480px;}
+    .row { display: grid; grid-template-columns: 1fr 2fr 1fr; gap: 12px; align-items: center; }
+    .pane { display: flex; justify-content: center; align-items: center; padding: 6px; background: #121214; border: 1px solid #2a2a2e; border-radius: 10px; position: relative; }
+    .pane canvas { max-width: 100%; max-height: 450px; height: auto; }
     .pane .label { position: absolute; background: rgba(0,0,0,0.6); padding: 4px 8px; border-radius: 999px; font-size: 12px; top: 10px; left: 10px; }
     .controls { display: flex; justify-content: center; gap: 8px; }
     .controls button, .controls select, .controls input { background: #1a1a1c; color: #f7f7f7; border: 1px solid #2a2a2e; padding: 8px 10px; border-radius: 8px; }

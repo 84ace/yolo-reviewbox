@@ -23,8 +23,16 @@
   const cancelExport = document.getElementById("cancelExport");
   const exportSpinner = document.getElementById("exportSpinner");
 
+  const projectSwitcher = document.getElementById("projectSwitcher");
+  const btnNewProject = document.getElementById("btnNewProject");
+  const newProjectModal = document.getElementById("newProjectModal");
+  const newProjectName = document.getElementById("newProjectName");
+  const moveCurrentProject = document.getElementById("moveCurrentProject");
+  const runCreateProject = document.getElementById("runCreateProject");
+  const cancelCreateProject = document.getElementById("cancelCreateProject");
+
   let state = { page: 1, pageSize: window.appConfig?.pageSize || 200, total: 0,
-    images: [], selected: new Set(), lastClickedIndex: null, thumb: 112, filter: "", class: "All Classes" };
+    images: [], selected: new Set(), lastClickedIndex: null, thumb: 112, filter: "", class: "All Classes", project: "default" };
   let pageBoxes = {}; // name -> boxes[]
 
   function applyThumbSize() {
@@ -370,6 +378,94 @@
     });
   }
 
+  async function fetchProjects() {
+    const res = await fetch("/api/projects");
+    const data = await res.json();
+    const projects = data.projects || [];
+    state.project = data.active;
+    projectSwitcher.innerHTML = "";
+    projects.forEach(p => {
+      const opt = document.createElement("option");
+      opt.value = p;
+      opt.textContent = p;
+      if (p === state.project) opt.selected = true;
+      projectSwitcher.appendChild(opt);
+    });
+  }
+
+  async function switchProject() {
+    const newProject = projectSwitcher.value;
+    if (newProject === state.project) return;
+    try {
+      const res = await fetch("/api/project/switch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newProject }),
+      });
+      if (res.ok) {
+        state.project = newProject;
+        state.page = 1;
+        state.selected.clear();
+        await fetchClasses();
+        await fetchImages();
+      } else {
+        alert("Failed to switch project.");
+        projectSwitcher.value = state.project; // Revert selection
+      }
+    } catch (e) {
+      alert(`Error: ${e.message}`);
+      projectSwitcher.value = state.project;
+    }
+  }
+
+  function showNewProjectModal() {
+    newProjectName.value = "";
+    moveCurrentProject.checked = false;
+    newProjectModal.style.display = "flex";
+    newProjectName.focus();
+  }
+
+  async function createNewProject() {
+    const name = newProjectName.value.trim();
+    if (!name.match(/^[a-zA-Z0-9]+$/)) {
+      alert("Project name must be alphanumeric with no spaces.");
+      return;
+    }
+
+    runCreateProject.disabled = true;
+    try {
+      const res = await fetch("/api/project/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          move_from: moveCurrentProject.checked ? state.project : null,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        newProjectModal.style.display = "none";
+        state.project = data.name;
+        await fetchProjects();
+        state.page = 1;
+        state.selected.clear();
+        await fetchClasses();
+        await fetchImages();
+      } else {
+        alert(`Failed to create project: ${data.error || 'Unknown error'}`);
+      }
+    } catch (e) {
+      alert(`Error: ${e.message}`);
+    } finally {
+      runCreateProject.disabled = false;
+    }
+  }
+
+  projectSwitcher.addEventListener("change", switchProject);
+  btnNewProject.addEventListener("click", showNewProjectModal);
+  runCreateProject.addEventListener("click", createNewProject);
+  cancelCreateProject.addEventListener("click", () => { newProjectModal.style.display = "none"; });
+
   document.addEventListener("keydown", (e) => {
     if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
     if (e.key === "d" || e.key === "D") deleteSelected();
@@ -387,6 +483,9 @@
   pageSizeSel.value = String(state.pageSize);
   thumbSizeSel.value = String(state.thumb);
   applyThumbSize();
-  fetchClasses();
-  fetchImages();
+  (async () => {
+    await fetchProjects();
+    await fetchClasses();
+    await fetchImages();
+  })();
 })();
