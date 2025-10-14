@@ -33,7 +33,7 @@
 
   let state = { page: 1, pageSize: window.appConfig?.pageSize || 200, total: 0,
     images: [], selected: new Set(), lastClickedIndex: null, thumb: 112, filter: "", class: "All Classes", project: "default" };
-  let pageBoxes = {}; // name -> boxes[]
+  let pageAnns = {}; // name -> {boxes,w,h}
 
   function applyThumbSize() {
     const s = parseInt(state.thumb, 10);
@@ -66,11 +66,13 @@
     const ctx = overlay.getContext("2d");
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0,0,w,h);
-    const boxes = (pageBoxes && pageBoxes[name]) ? pageBoxes[name] : [];
+    const anns = (pageAnns && pageAnns[name]) ? pageAnns[name] : {};
+    const boxes = anns.boxes || [];
     if (!boxes.length) return;
-    const f = (w / 224);
+    const fx = w / (anns.w || w);
+    const fy = h / (anns.h || h);
     ctx.save();
-    ctx.lineWidth = Math.max(1, Math.round(1*f));
+    ctx.lineWidth = Math.max(1, Math.round(1*fx));
     ctx.font = `${Math.max(10, Math.round(10*f))}px system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial`;
     const isNull = boxes.some(b => b.label === "__null__");
     if (isNull) {
@@ -87,10 +89,11 @@
     boxes.forEach(b => {
       if (b.label === "__null__") return;
       ctx.strokeStyle = colorFromString(b.label);
-      const x = Math.min(b.x1,b.x2)*f, y = Math.min(b.y1,b.y2)*f;
-      const bw = Math.abs(b.x2-b.x1)*f, bh = Math.abs(b.y2-b.y1)*f;
+      const x = Math.min(b.x1,b.x2)*fx, y = Math.min(b.y1,b.y2)*fy;
+      const bw = Math.abs(b.x2-b.x1)*fx, bh = Math.abs(b.y2-b.y1)*fy;
       ctx.strokeRect(x,y,bw,bh);
       if (b.label){
+        const f = fx; // for font scaling, assume square-ish pixels
         const pad = 4*f;
         const tw = ctx.measureText(b.label).width + pad*2;
         const bhh = (14*f);
@@ -103,7 +106,7 @@
     ctx.restore();
   }
 
-  async function fetchBoxesForPage(imgs){
+  async function fetchAnnsForPage(imgs){
     // Try bulk endpoint first
     try{
       const res = await fetch("/api/annotations_bulk", {
@@ -112,10 +115,7 @@
       });
       if (!res.ok) throw new Error(`bulk ${res.status}`);
       const data = await res.json();
-      const items = data.items || {};
-      const normalized = {};
-      Object.keys(items).forEach(k => { normalized[k] = (items[k] && items[k].boxes) ? items[k].boxes : []; });
-      return normalized;
+      return data.items || {};
     } catch(e){
       // Fallback: per-image fetch with small concurrency
       const out = {};
@@ -125,9 +125,8 @@
           const name = queue.shift();
           try{
             const r = await fetch(`/api/annotation?image=${encodeURIComponent(name)}&t=${Date.now()}`, { cache: "no-store" });
-            const d = await r.json();
-            out[name] = d.boxes || [];
-          }catch{ out[name] = []; }
+            out[name] = await r.json();
+          }catch{ out[name] = {boxes:[], w:-1, h:-1}; }
         }
       });
       await Promise.all(workers);
@@ -185,13 +184,13 @@
       grid.appendChild(tile);
     });
 
-    // Fetch page boxes and draw overlays
+    // Fetch page annotations and draw overlays
     try{
-      pageBoxes = await fetchBoxesForPage(imgs);
+      pageAnns = await fetchAnnsForPage(imgs);
     }catch(e){
-      pageBoxes = {};
+      pageAnns = {};
     }
-    if (!pageBoxes || typeof pageBoxes !== 'object') pageBoxes = {};
+    if (!pageAnns || typeof pageAnns !== 'object') pageAnns = {};
 
     Array.from(grid.children).forEach(tile => {
       const name = tile.dataset.name;

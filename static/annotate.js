@@ -10,20 +10,30 @@
   const saveBtn = document.getElementById("saveBtn");
   const goBack = document.getElementById("goBack");
 
-  const W = window.annConfig.w, H = window.annConfig.h;
-  canvas.width = W; canvas.height = H;
-
+  let W = window.annConfig.w, H = window.annConfig.h;
+  let scaleX = 1, scaleY = 1;
   let boxes = []; let current = null; let activeIdx = -1;
 
+  function initCanvas() {
+    const displayW = img.clientWidth;
+    const displayH = img.clientHeight;
+    canvas.width = displayW;
+    canvas.height = displayH;
+    scaleX = W / displayW;
+    scaleY = H / displayH;
+    drawAll();
+  }
+
   function drawAll() {
-    ctx.clearRect(0,0, W, H);
+    if (!canvas.width || !canvas.height) return;
+    ctx.clearRect(0,0, canvas.width, canvas.height);
     boxes.forEach((b, i) => drawBox(b, i === activeIdx));
     if (current) drawBox(current, true, true);
   }
 
   function drawBox(b, active=false, dashed=false) {
-    const x = Math.min(b.x1, b.x2), y = Math.min(b.y1, b.y2);
-    const w = Math.abs(b.x2 - b.x1), h = Math.abs(b.y2 - b.y1);
+    const x = Math.min(b.x1, b.x2) / scaleX, y = Math.min(b.y1, b.y2) / scaleY;
+    const w = Math.abs(b.x2 - b.x1) / scaleX, h = Math.abs(b.y2 - b.y1) / scaleY;
     ctx.save();
     if (dashed) ctx.setLineDash([4,3]); else ctx.setLineDash([]);
     ctx.lineWidth = active ? 3 : 1;
@@ -58,17 +68,19 @@
     boxes[activeIdx].label = labelSelect.value || ""; drawAll(); refreshList();
   }
 
-  let dragging = false; let startX = 0, startY = 0;
+  let dragging = false;
   canvas.addEventListener("mousedown", (e) => {
     const rect = canvas.getBoundingClientRect();
-    startX = Math.floor(e.clientX - rect.left); startY = Math.floor(e.clientY - rect.top);
-    current = { x1: startX, y1: startY, x2: startX, y2: startY, label: labelSelect.value || "" };
+    const startX = Math.floor(e.clientX - rect.left);
+    const startY = Math.floor(e.clientY - rect.top);
+    current = { x1: startX * scaleX, y1: startY * scaleY, x2: startX * scaleX, y2: startY * scaleY, label: labelSelect.value || "" };
     dragging = true; activeIdx = -1; drawAll(); refreshList();
   });
   canvas.addEventListener("mousemove", (e) => {
     if (!dragging) return;
     const rect = canvas.getBoundingClientRect();
-    current.x2 = Math.floor(e.clientX - rect.left); current.y2 = Math.floor(e.clientY - rect.top);
+    current.x2 = Math.floor(e.clientX - rect.left) * scaleX;
+    current.y2 = Math.floor(e.clientY - rect.top) * scaleY;
     drawAll();
   });
   window.addEventListener("mouseup", () => {
@@ -92,8 +104,12 @@
   async function loadBoxes() {
     const res = await fetch(`/api/annotation?image=${encodeURIComponent(window.annConfig.image)}&t=${Date.now()}`, { cache: "no-store" });
     const data = await res.json();
-    boxes = (data.boxes || []).map(b => ({...b})); activeIdx = boxes.length ? 0 : -1;
-    drawAll(); refreshList();
+    boxes = (data.boxes || []).map(b => ({...b}));
+    W = data.w > 0 ? data.w : W;
+    H = data.h > 0 ? data.h : H;
+    activeIdx = boxes.length ? 0 : -1;
+    initCanvas();
+    refreshList();
   }
 
   async function loadClasses() {
@@ -139,5 +155,9 @@
     }
   });
 
-  loadClasses(); loadBoxes();
+  window.addEventListener("resize", initCanvas);
+  img.addEventListener("load", () => {
+    loadClasses();
+    loadBoxes();
+  });
 })();
