@@ -126,7 +126,6 @@
   saveBtn.addEventListener("click", saveAnnotations);
 
   nullBtn.addEventListener("click", () => {
-    if (!confirm("Tag this image as NULL? This will remove existing boxes.")) return;
     boxes = [{label: "__null__", x1: 0, y1: 0, x2: 0, y2: 0}];
     saveAnnotations();
   });

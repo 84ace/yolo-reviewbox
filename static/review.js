@@ -69,9 +69,7 @@
     }
     const res = await fetch(url); const data = await res.json();
     images = data.images || [];
-    const savedIdx = parseInt(localStorage.getItem("rb-review-idx")||"0",10);
-    if (!Number.isNaN(savedIdx) && savedIdx>=0 && savedIdx<images.length) idx=savedIdx;
-    else idx = 0;
+    idx = 0;
     await renderTriplet();
   }
 
@@ -214,7 +212,6 @@
 
   async function tagAsNull() {
     const name = images[idx]; if(!name) return;
-    if (!confirm(`Tag ${name} as NULL? This will remove existing boxes.`)) return;
     const boxes = [{label: "__null__", x1: 0, y1: 0, x2: 0, y2: 0}];
     await saveBox(name, boxes);
     boxesCache[name] = boxes;

@@ -114,20 +114,19 @@ def get_images_by_class(class_name: str) -> List[str]:
         try:
             tree = ET.parse(ann_file)
             root = tree.getroot()
-            found = False
-            for obj in root.findall("object"):
-                if obj.findtext("name") == class_name:
+
+            if class_name == "__null__":
+                if any(o.findtext("name") == "__null__" for o in root.findall("object")):
                     filename = root.findtext("filename")
                     if filename:
                         img_files.add(filename)
-                    found = True
-                    break
-            if not found and class_name == "__null__":
-                 # If we are looking for null, and we haven't found any other class, it's null
-                if not any(obj.findtext("name") for obj in root.findall("object")):
-                    filename = root.findtext("filename")
-                    if filename:
-                        img_files.add(filename)
+            else:
+                for obj in root.findall("object"):
+                    if obj.findtext("name") == class_name:
+                        filename = root.findtext("filename")
+                        if filename:
+                            img_files.add(filename)
+                        break
 
         except ET.ParseError:
             continue
