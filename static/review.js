@@ -23,6 +23,7 @@
   const annsCache = {}; // name -> {boxes,w,h}
   let isDragging = false; let dragStart = null; let lastPos = null;
   let activeMouseUpHandler = null;
+  let isSaving = false;
   function imgUrl(n){ return `/image/${encodeURIComponent(n)}`; }
 
   async function loadClasses(){
@@ -185,7 +186,7 @@
     });
 
     async function onMouseUpOnce(e){
-      if(!isDragging) return;
+      if(!isDragging || isSaving) return;
       isDragging=false; window.removeEventListener("mouseup", onMouseUpOnce); activeMouseUpHandler = null;
       if(!dragStart || !lastPos) return;
 
@@ -206,23 +207,33 @@
         y2: Math.round(Math.max(0, Math.min(h, y2))),
         label: labelSelect.value || ""
       };
+      const bw = Math.abs(x2 - x1);
+      const bh = Math.abs(y2 - y1);
+
+      if (bw < 5 || bh < 5) {
+        console.log("Box too small, ignoring.");
+        await renderTriplet(); // Re-render to clear drag artifacts
+        return;
+      }
+      isSaving = true;
       const updatedBoxes = await saveBox(currName, box);
       const oldAnns = annsCache[currName] || {};
       annsCache[currName] = { ...oldAnns, boxes: updatedBoxes };
       localStorage.setItem("rb-last-label", box.label);
       if (idx < images.length-1) idx += 1;
       await renderTriplet();
+      isSaving = false;
     }
     activeMouseUpHandler = onMouseUpOnce;
     window.addEventListener("mouseup", onMouseUpOnce);
   }
 
-  async function saveBox(imageName, newBoxOrBoxes){
+  async function saveBox(imageName, newBoxOrBoxes, overwrite = false){
     try{
       const existingAnns = annsCache[imageName] || { boxes: [] };
       const existingBoxes = (existingAnns.boxes||[]).slice();
       const newBoxes = Array.isArray(newBoxOrBoxes) ? newBoxOrBoxes : [newBoxOrBoxes];
-      const finalBoxes = [...existingBoxes, ...newBoxes];
+      const finalBoxes = overwrite ? newBoxes : [...existingBoxes, ...newBoxes];
       await fetch("/api/annotate", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ image:imageName, boxes: finalBoxes }) });
       return finalBoxes;
     }catch(e){ console.error("Save failed", e); return []; }
@@ -241,12 +252,15 @@
   }
 
   async function tagAsNull() {
+    if (isSaving) return;
     const name = images[idx]; if(!name) return;
+    isSaving = true;
     const boxes = [{label: "__null__", x1: 0, y1: 0, x2: 0, y2: 0}];
-    const updatedBoxes = await saveBox(name, boxes);
+    const updatedBoxes = await saveBox(name, boxes, true); // Overwrite
     annsCache[name] = { ...annsCache[name], boxes: updatedBoxes };
     if (idx < images.length-1) idx += 1;
     await renderTriplet();
+    isSaving = false;
   }
 
   backBtn.addEventListener("click", goBack);
