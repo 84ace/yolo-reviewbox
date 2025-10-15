@@ -134,11 +134,16 @@ def get_unannotated_images() -> List[str]:
     all_images = set(list_images_sorted())
     annotated_images = set()
     for ann_file in glob.glob(os.path.join(annotation_dir, "*.xml")):
-        base, _ = os.path.splitext(os.path.basename(ann_file))
-        # This is not robust, but works for now
-        for ext in ALLOWED_EXTS:
-            annotated_images.add(base + ext)
-            annotated_images.add(base + ext.upper())
+        try:
+            tree = ET.parse(ann_file)
+            # If there are any objects, it's annotated.
+            if len(tree.findall("object")) > 0:
+                filename = tree.findtext("filename")
+                if filename and is_safe_filename(filename):
+                    annotated_images.add(filename)
+        except ET.ParseError:
+            # This file is likely empty or malformed, treat as unannotated
+            continue
 
     unannotated = sorted(list(all_images - annotated_images), key=lambda p: (-os.path.getmtime(os.path.join(image_dir, p)), p.lower()))
     return unannotated
@@ -226,9 +231,15 @@ def api_get_annotation():
     if not is_safe_filename(img): abort(400, "Invalid image name.")
     axml = voc_xml_path(img)
     boxes = []
+    w, h = -1, -1
     if os.path.exists(axml):
         try:
             root = ET.parse(axml).getroot()
+            size_el = root.find("size")
+            if size_el:
+                w = int(size_el.findtext("width", "-1"))
+                h = int(size_el.findtext("height", "-1"))
+
             for obj in root.findall("object"):
                 bnd = obj.find("bndbox")
                 if bnd is None: continue
@@ -240,10 +251,16 @@ def api_get_annotation():
                     "y2": int(bnd.findtext("ymax","0")),
                 })
         except Exception as e:
-            resp = jsonify({"boxes": boxes, "error": str(e)})
+            resp = jsonify({"boxes": boxes, "error": str(e), "w": w, "h": h})
             resp.headers["Cache-Control"] = "no-store, max-age=0"
             return resp, 200
-    resp = jsonify({"boxes": boxes})
+
+    if w < 0:
+        dirs = get_active_project_dirs()
+        image_dir = dirs["images"]
+        w, h = img_size(os.path.join(image_dir, img))
+
+    resp = jsonify({"boxes": boxes, "w": w, "h": h})
     resp.headers["Cache-Control"] = "no-store, max-age=0"
     return resp
 
@@ -252,14 +269,23 @@ def api_annotations_bulk():
     data = request.get_json(force=True, silent=True) or {}
     images = data.get("images", [])
     out = {}
+    dirs = get_active_project_dirs()
+    image_dir = dirs["images"]
+
     for name in images:
         if not is_safe_filename(name):
             continue
         axml = voc_xml_path(name)
         boxes = []
+        w,h = -1,-1
         if os.path.exists(axml):
             try:
                 root = ET.parse(axml).getroot()
+                size_el = root.find("size")
+                if size_el:
+                    w = int(size_el.findtext("width", "-1"))
+                    h = int(size_el.findtext("height", "-1"))
+
                 for obj in root.findall("object"):
                     bnd = obj.find("bndbox")
                     if bnd is None: continue
@@ -272,9 +298,14 @@ def api_annotations_bulk():
                     })
             except Exception:
                 boxes = []
-        out[name] = {"boxes": boxes}
+
+        if w < 0:
+            w, h = img_size(os.path.join(image_dir, name))
+
+        out[name] = {"boxes": boxes, "w": w, "h": h}
+
     resp = jsonify({"items": out})
-    resp.headers["Cache-Control"] = "no-store, max-age=0"
+    resp.headers["Cache-control"] = "no-store, max-age=0"
     return resp
 
 @app.route("/api/annotate", methods=["POST"])
@@ -297,9 +328,13 @@ def api_classes():
     annotation_dir = dirs["annotations"]
     classes_file = os.path.join(annotation_dir, "classes.json")
     if request.method == "GET":
+        if not os.path.exists(classes_file):
+            update_classes_from_annotations()
+
         if os.path.exists(classes_file):
             try:
-                resp = jsonify({"classes": json.load(open(CLASSES_FILE))})
+                with open(classes_file, "r") as f:
+                    resp = jsonify({"classes": json.load(f)})
                 resp.headers["Cache-Control"] = "no-store, max-age=0"
                 return resp
             except Exception:

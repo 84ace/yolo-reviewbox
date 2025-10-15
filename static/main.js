@@ -66,9 +66,13 @@
     const ctx = overlay.getContext("2d");
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0,0,w,h);
-    const boxes = (pageBoxes && pageBoxes[name]) ? pageBoxes[name] : [];
+    const boxData = (pageBoxes && pageBoxes[name]) ? pageBoxes[name] : null;
+    if (!boxData) return;
+    const boxes = boxData.boxes || [];
+    const origW = boxData.w || 224;
+    const origH = boxData.h || 224;
     if (!boxes.length) return;
-    const f = (w / 224);
+    const f = (w / origW);
     ctx.save();
     ctx.lineWidth = Math.max(1, Math.round(1*f));
     ctx.font = `${Math.max(10, Math.round(10*f))}px system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial`;
@@ -112,10 +116,7 @@
       });
       if (!res.ok) throw new Error(`bulk ${res.status}`);
       const data = await res.json();
-      const items = data.items || {};
-      const normalized = {};
-      Object.keys(items).forEach(k => { normalized[k] = (items[k] && items[k].boxes) ? items[k].boxes : []; });
-      return normalized;
+      return data.items || {};
     } catch(e){
       // Fallback: per-image fetch with small concurrency
       const out = {};
@@ -126,8 +127,8 @@
           try{
             const r = await fetch(`/api/annotation?image=${encodeURIComponent(name)}&t=${Date.now()}`, { cache: "no-store" });
             const d = await r.json();
-            out[name] = d.boxes || [];
-          }catch{ out[name] = []; }
+            out[name] = { boxes: d.boxes || [], w: d.w, h: d.h };
+          }catch{ out[name] = { boxes: [] }; }
         }
       });
       await Promise.all(workers);
