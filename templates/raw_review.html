@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ app_title }} — Raw Image Review</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body class="review">
+  <header class="topbar">
+    <a href="/" class="title">{{ app_title }}</a>
+    <div class="actions">
+      <strong style="margin-right: 1em">Raw Image Review</strong>
+      <button id="btnAccept" title="Accept selected images into the catalog (A)">Accept Selected</button>
+      <button id="btnDelete" title="Delete selected images permanently (D)">Delete Selected</button>
+    </div>
+  </header>
+
+  <section class="controls">
+    <div class="left">
+      <label>Filter: <input id="filterText" placeholder="filename contains..." /></label>
+    </div>
+    <div class="right">
+      <span id="imageCounter"></span>
+    </div>
+  </section>
+
+  <section id="grid" class="grid"></section>
+
+  <script src="/static/utils.js" defer></script>
+  <script src="/static/raw_review.js" defer></script>
+</body>
+</html>

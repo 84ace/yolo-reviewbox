@@ -9,6 +9,8 @@ import xml.etree.ElementTree as ET
 
 APP_TITLE = "Yolo-ReviewBox"
 PROJECTS_ROOT_DIR = os.environ.get("RB_PROJECTS_DIR", os.path.abspath("./projects"))
+RAW_IMAGES_DIR = os.environ.get("RB_RAW_IMAGES_DIR", os.path.abspath("./raw_images"))
+IMAGE_CATALOG_DIR = os.environ.get("RB_IMAGE_CATALOG_DIR", os.path.abspath("./image_catalog"))
 PAGE_SIZE_DEFAULT = int(os.environ.get("RB_PAGE_SIZE", "200"))
 ALLOWED_EXTS = {".jpg", ".jpeg", ".png"}
 
@@ -28,9 +30,9 @@ def set_active_project(name: str):
 def get_project_dirs(project_name: str) -> Dict[str, str]:
     base = os.path.join(PROJECTS_ROOT_DIR, project_name)
     return {
-        "images": os.path.join(base, "images"),
         "annotations": os.path.join(base, "annotations"),
         "exports": os.path.join(base, "exports"),
+        "project_images": os.path.join(base, "project_images.txt"),
     }
 
 def get_active_project_dirs() -> Dict[str, str]:
@@ -38,12 +40,17 @@ def get_active_project_dirs() -> Dict[str, str]:
 
 def ensure_project_dirs_exist(project_name: str):
     dirs = get_project_dirs(project_name)
-    os.makedirs(dirs["images"], exist_ok=True)
     os.makedirs(dirs["annotations"], exist_ok=True)
     os.makedirs(dirs["exports"], exist_ok=True)
+    if not os.path.exists(dirs["project_images"]):
+        with open(dirs["project_images"], "w") as f:
+            pass  # Create an empty file
 
 # Ensure default project exists on startup
 ensure_project_dirs_exist(get_active_project())
+os.makedirs(RAW_IMAGES_DIR, exist_ok=True)
+os.makedirs(IMAGE_CATALOG_DIR, exist_ok=True)
+
 
 app = Flask(__name__, static_url_path='/static', static_folder='static')
 # Respect X-Forwarded-Proto/Host when behind a reverse proxy
@@ -51,12 +58,19 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
 def list_images_sorted() -> List[str]:
     dirs = get_active_project_dirs()
-    image_dir = dirs["images"]
-    files = []
-    for ext in ("*.jpg", "*.jpeg", "*.png", "*.JPG", "*.JPEG", "*.PNG"):
-        files.extend(glob.glob(os.path.join(image_dir, ext)))
-    files.sort(key=lambda p: (-os.path.getmtime(p), os.path.basename(p).lower()))
-    return [os.path.basename(p) for p in files]
+    images_file = dirs["project_images"]
+    if not os.path.exists(images_file):
+        return []
+    with open(images_file, "r") as f:
+        files = [line.strip() for line in f if line.strip()]
+
+    # Sort by modification time of the actual files in the catalog
+    def get_mtime(f):
+        path = os.path.join(IMAGE_CATALOG_DIR, f)
+        return os.path.getmtime(path) if os.path.exists(path) else 0
+
+    files.sort(key=lambda p: (-get_mtime(p), p.lower()))
+    return files
 
 def is_safe_filename(name: str) -> bool:
     if "/" in name or "\\" in name: return False
@@ -73,12 +87,10 @@ def img_size(path: str):
 def clamp(v, lo, hi): return max(lo, min(hi, v))
 
 def boxes_to_voc_xml(img_file: str, w: int, h: int, boxes: List[Dict[str, Any]]) -> bytes:
-    dirs = get_active_project_dirs()
-    image_dir = dirs["images"]
     ann = ET.Element("annotation")
-    ET.SubElement(ann, "folder").text = os.path.basename(image_dir)
+    ET.SubElement(ann, "folder").text = os.path.basename(IMAGE_CATALOG_DIR)
     ET.SubElement(ann, "filename").text = img_file
-    ET.SubElement(ann, "path").text = os.path.join(image_dir, img_file)
+    ET.SubElement(ann, "path").text = os.path.join(IMAGE_CATALOG_DIR, img_file)
     src = ET.SubElement(ann, "source"); ET.SubElement(src, "database").text = "Unknown"
     size = ET.SubElement(ann, "size")
     ET.SubElement(size, "width").text = str(w)
@@ -116,20 +128,21 @@ def index():
 def review_mode():
     return render_template("review.html", app_title=APP_TITLE)
 
+@app.route("/raw_review")
+def raw_review_page():
+    return render_template("raw_review.html", app_title=APP_TITLE)
+
 @app.route("/annotate")
 def annotate_page():
     img = request.args.get("image","")
     if not is_safe_filename(img): abort(400, "Invalid image name.")
-    dirs = get_active_project_dirs()
-    image_dir = dirs["images"]
-    path = os.path.join(image_dir, img)
+    path = os.path.join(IMAGE_CATALOG_DIR, img)
     if not os.path.exists(path): abort(404, "Image not found.")
     w,h = img_size(path)
     return render_template("annotate.html", image_name=img, image_w=w, image_h=h, app_title=APP_TITLE)
 
 def get_unannotated_images() -> List[str]:
     dirs = get_active_project_dirs()
-    image_dir = dirs["images"]
     annotation_dir = dirs["annotations"]
     all_images = set(list_images_sorted())
     annotated_images = set()
@@ -145,7 +158,8 @@ def get_unannotated_images() -> List[str]:
             # This file is likely empty or malformed, treat as unannotated
             continue
 
-    unannotated = sorted(list(all_images - annotated_images), key=lambda p: (-os.path.getmtime(os.path.join(image_dir, p)), p.lower()))
+    # Sorting by filename as mtime is less relevant for unannotated
+    unannotated = sorted(list(all_images - annotated_images), key=lambda p: p.lower())
     return unannotated
 
 def get_images_by_class(class_name: str) -> List[str]:
@@ -201,29 +215,41 @@ def api_images():
 @app.route("/image/<path:fname>")
 def serve_image(fname):
     if not is_safe_filename(fname): abort(400, "Invalid image name.")
-    dirs = get_active_project_dirs()
-    image_dir = dirs["images"]
-    return send_from_directory(image_dir, fname)
+    return send_from_directory(IMAGE_CATALOG_DIR, fname)
 
 @app.route("/api/delete", methods=["POST"])
 def api_delete():
     data = request.get_json(force=True, silent=True) or {}
-    files = data.get("files", [])
-    deleted, errors = [], []
+    files_to_delete = set(data.get("files", []))
+    deleted_count = 0
+    errors = []
+
     dirs = get_active_project_dirs()
-    image_dir = dirs["images"]
-    for f in files:
-        if not is_safe_filename(f):
-            errors.append({"file": f, "error": "invalid name"}); continue
-        fpath = os.path.join(image_dir, f)
-        try:
-            if os.path.exists(fpath): os.remove(fpath)
+    images_file = dirs["project_images"]
+
+    try:
+        with open(images_file, "r") as f:
+            all_images = [line.strip() for line in f if line.strip()]
+
+        updated_images = [img for img in all_images if img not in files_to_delete]
+
+        with open(images_file, "w") as f:
+            for img in updated_images:
+                f.write(img + "\n")
+
+        deleted_count = len(all_images) - len(updated_images)
+
+        # Also delete associated annotation files
+        for f in files_to_delete:
+            if not is_safe_filename(f): continue
             axml = voc_xml_path(f)
-            if os.path.exists(axml): os.remove(axml)
-            deleted.append(f)
-        except Exception as e:
-            errors.append({"file": f, "error": str(e)})
-    return jsonify({"deleted": deleted, "errors": errors})
+            if os.path.exists(axml):
+                os.remove(axml)
+
+    except Exception as e:
+        errors.append({"error": str(e)})
+
+    return jsonify({"deleted_count": deleted_count, "errors": errors})
 
 @app.route("/api/annotation", methods=["GET"])
 def api_get_annotation():
@@ -256,9 +282,7 @@ def api_get_annotation():
             return resp, 200
 
     if w < 0:
-        dirs = get_active_project_dirs()
-        image_dir = dirs["images"]
-        w, h = img_size(os.path.join(image_dir, img))
+        w, h = img_size(os.path.join(IMAGE_CATALOG_DIR, img))
 
     resp = jsonify({"boxes": boxes, "w": w, "h": h})
     resp.headers["Cache-Control"] = "no-store, max-age=0"
@@ -269,8 +293,6 @@ def api_annotations_bulk():
     data = request.get_json(force=True, silent=True) or {}
     images = data.get("images", [])
     out = {}
-    dirs = get_active_project_dirs()
-    image_dir = dirs["images"]
 
     for name in images:
         if not is_safe_filename(name):
@@ -300,7 +322,7 @@ def api_annotations_bulk():
                 boxes = []
 
         if w < 0:
-            w, h = img_size(os.path.join(image_dir, name))
+            w, h = img_size(os.path.join(IMAGE_CATALOG_DIR, name))
 
         out[name] = {"boxes": boxes, "w": w, "h": h}
 
@@ -313,9 +335,7 @@ def api_post_annotate():
     data = request.get_json(force=True, silent=True) or {}
     img = data.get("image"); boxes = data.get("boxes", [])
     if not (img and is_safe_filename(img)): abort(400, "Invalid image.")
-    dirs = get_active_project_dirs()
-    image_dir = dirs["images"]
-    path = os.path.join(image_dir, img)
+    path = os.path.join(IMAGE_CATALOG_DIR, img)
     if not os.path.exists(path): abort(404, "Image not found.")
     w,h = img_size(path)
     with open(voc_xml_path(img), "wb") as f:
@@ -380,11 +400,11 @@ def api_import_voc():
         return jsonify({"error": "Invalid file type, must be a .zip file"}), 400
 
     try:
-        imported_count = 0
+        imported_images = []
         failed_files = []
         dirs = get_active_project_dirs()
-        image_dir = dirs["images"]
         annotation_dir = dirs["annotations"]
+
         with zipfile.ZipFile(file, 'r') as z:
             for item in z.infolist():
                 try:
@@ -395,26 +415,31 @@ def api_import_voc():
                     if not base_filename: continue
 
                     if any(base_filename.lower().endswith(ext) for ext in ALLOWED_EXTS):
-                        target_dir = image_dir
                         if not is_safe_filename(base_filename):
                             failed_files.append(f"{item.filename} (unsafe name)")
                             continue
-                        target_path = os.path.join(target_dir, base_filename)
+                        target_path = os.path.join(IMAGE_CATALOG_DIR, base_filename)
                         with z.open(item) as zf, open(target_path, 'wb') as f:
                             shutil.copyfileobj(zf, f)
-                        imported_count += 1
+                        imported_images.append(base_filename)
                     elif base_filename.lower().endswith('.xml'):
-                        target_dir = annotation_dir
-                        target_path = os.path.join(target_dir, base_filename)
+                        target_path = os.path.join(annotation_dir, base_filename)
                         with z.open(item) as zf, open(target_path, 'wb') as f:
                             shutil.copyfileobj(zf, f)
                 except Exception as e:
                     app.logger.error(f"Error importing {item.filename}: {str(e)}")
                     failed_files.append(item.filename)
 
+        # Add imported images to the current project
+        if imported_images:
+            images_file = dirs["project_images"]
+            with open(images_file, "a") as f:
+                for img in imported_images:
+                    f.write(img + "\n")
+
         update_classes_from_annotations()
 
-        message = f"Imported {imported_count} images."
+        message = f"Imported {len(imported_images)} images."
         if failed_files:
             message += f" Failed to import {len(failed_files)} files."
 
@@ -435,10 +460,9 @@ def api_import_images():
         return jsonify({"error": "Invalid file type, must be a .zip file"}), 400
 
     try:
-        imported_count = 0
+        imported_images = []
         failed_files = []
         dirs = get_active_project_dirs()
-        image_dir = dirs["images"]
         with zipfile.ZipFile(file, 'r') as z:
             for item in z.infolist():
                 try:
@@ -450,15 +474,21 @@ def api_import_images():
                         if not is_safe_filename(base_filename):
                             failed_files.append(f"{item.filename} (unsafe name)")
                             continue
-                        target_path = os.path.join(image_dir, base_filename)
+                        target_path = os.path.join(IMAGE_CATALOG_DIR, base_filename)
                         with z.open(item) as zf, open(target_path, 'wb') as f:
                             shutil.copyfileobj(zf, f)
-                        imported_count += 1
+                        imported_images.append(base_filename)
                 except Exception as e:
                     app.logger.error(f"Error importing {item.filename}: {str(e)}")
                     failed_files.append(item.filename)
 
-        message = f"Imported {imported_count} images."
+        if imported_images:
+            images_file = dirs["project_images"]
+            with open(images_file, "a") as f:
+                for img in imported_images:
+                    f.write(img + "\n")
+
+        message = f"Imported {len(imported_images)} images."
         if failed_files:
             message += f" Failed to import {len(failed_files)} files."
 
@@ -495,7 +525,6 @@ def api_export_voc():
             remap_dict[f] = r.get("to")
 
     dirs = get_active_project_dirs()
-    image_dir = dirs["images"]
     exports_dir = dirs["exports"]
 
     ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
@@ -509,7 +538,7 @@ def api_export_voc():
     kept = []
 
     for name in imgs:
-        src_img = os.path.join(image_dir, name)
+        src_img = os.path.join(IMAGE_CATALOG_DIR, name)
         axml_src = voc_xml_path(name)
 
         if not os.path.exists(axml_src):
@@ -602,7 +631,6 @@ def api_switch_project():
 def api_create_project():
     data = request.get_json(force=True, silent=True) or {}
     name = data.get("name")
-    move_from = data.get("move_from")
 
     if not name or "/" in name or "\\" in name or not name.isalnum():
         abort(400, "Invalid project name. Must be alphanumeric.")
@@ -613,24 +641,118 @@ def api_create_project():
 
     ensure_project_dirs_exist(name)
 
-    if move_from:
-        from_dirs = get_project_dirs(move_from)
-        to_dirs = get_project_dirs(name)
-        try:
-            # Move images, annotations
-            for d in ["images", "annotations"]:
-                src_dir = from_dirs[d]
-                dst_dir = to_dirs[d]
-                for item in os.listdir(src_dir):
-                    shutil.move(os.path.join(src_dir, item), os.path.join(dst_dir, item))
-        except Exception as e:
-            # Best-effort, log and continue
-            app.logger.error(f"Error moving files from '{move_from}': {e}")
-
-
     set_active_project(name)
     return jsonify({"ok": True, "name": name})
 
+def list_raw_images_recursive() -> List[str]:
+    files = []
+    for root, _, filenames in os.walk(RAW_IMAGES_DIR):
+        for filename in filenames:
+            if any(filename.lower().endswith(ext) for ext in ALLOWED_EXTS):
+                relative_path = os.path.relpath(os.path.join(root, filename), RAW_IMAGES_DIR)
+                files.append(relative_path)
+    files.sort()
+    return files
+
+@app.route("/api/raw_images")
+def api_raw_images():
+    images = list_raw_images_recursive()
+    return jsonify({"images": images})
+
+@app.route("/raw_image/<path:fname>")
+def serve_raw_image(fname):
+    # Basic security check
+    if ".." in fname or os.path.isabs(fname):
+        abort(400, "Invalid path.")
+
+    _, ext = os.path.splitext(fname)
+    if ext.lower() not in ALLOWED_EXTS:
+        abort(400, "Invalid file type.")
+
+    return send_from_directory(RAW_IMAGES_DIR, fname)
+
+@app.route("/api/raw/accept", methods=["POST"])
+def api_raw_accept():
+    data = request.get_json(force=True, silent=True) or {}
+    files = data.get("files", [])
+    accepted_files = []
+    errors = []
+    dirs = get_active_project_dirs()
+
+    for f in files:
+        src_path = os.path.join(RAW_IMAGES_DIR, f)
+
+        if not os.path.abspath(src_path).startswith(os.path.abspath(RAW_IMAGES_DIR)):
+            errors.append({"file": f, "error": "Invalid path"})
+            continue
+
+        if not os.path.exists(src_path):
+            errors.append({"file": f, "error": "Not found"})
+            continue
+
+        new_name = f.replace(os.sep, "_")
+        dest_path = os.path.join(IMAGE_CATALOG_DIR, new_name)
+
+        if os.path.exists(dest_path):
+            # If the destination already exists, don't move, just ensure it's in the project
+            pass
+        else:
+            try:
+                shutil.move(src_path, dest_path)
+            except Exception as e:
+                errors.append({"file": f, "error": str(e)})
+                continue
+
+        # Add to project if not already there
+        with open(dirs["project_images"], "r+") as proj_f:
+            existing = {line.strip() for line in proj_f}
+            if new_name not in existing:
+                proj_f.seek(0, 2) # Go to the end of the file
+                proj_f.write(new_name + "\n")
+
+        accepted_files.append({"original": f, "new": new_name})
+
+    for root, dirs, files in os.walk(RAW_IMAGES_DIR, topdown=False):
+        if not dirs and not files:
+            try:
+                os.rmdir(root)
+            except OSError:
+                pass
+
+    return jsonify({"accepted": accepted_files, "errors": errors})
+
+@app.route("/api/raw/delete", methods=["POST"])
+def api_raw_delete():
+    data = request.get_json(force=True, silent=True) or {}
+    files = data.get("files", [])
+    deleted = []
+    errors = []
+
+    for f in files:
+        path = os.path.join(RAW_IMAGES_DIR, f)
+
+        if not os.path.abspath(path).startswith(os.path.abspath(RAW_IMAGES_DIR)):
+            errors.append({"file": f, "error": "Invalid path"})
+            continue
+
+        if not os.path.exists(path):
+            errors.append({"file": f, "error": "Not found"})
+            continue
+
+        try:
+            os.remove(path)
+            deleted.append(f)
+        except Exception as e:
+            errors.append({"file": f, "error": str(e)})
+
+    for root, dirs, files in os.walk(RAW_IMAGES_DIR, topdown=False):
+        if not dirs and not files:
+            try:
+                os.rmdir(root)
+            except OSError:
+                pass
+
+    return jsonify({"deleted": deleted, "errors": errors})
 
 if __name__ == "__main__":
     use_https = os.environ.get("RB_USE_HTTPS", "").lower() in ("1","true","yes")
