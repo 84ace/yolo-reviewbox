@@ -14,7 +14,8 @@
       <button id="btnNewProject" title="Create a new project">+</button>
     </div>
     <div class="actions">
-      <a class="annotate" href="/review" style="text-decoration:none;margin-right:8px;">Review Mode ⚡</a>
+      <a class="action-link" href="/raw_review">Raw Image Review  unprocessed images</a>
+      <a class="action-link" href="/review">Review Mode ⚡</a>
       <button id="btnDelete" title="Delete selected (D)">Delete Selected</button>
       <button id="btnImport" title="Import Pascal VOC zip">Import VOC</button>
       <input type="file" id="importFile" accept=".zip" style="display:none;" />
@@ -112,12 +113,6 @@
       <div class="form-group">
         <label for="newProjectName">Project Name</label>
         <input type="text" id="newProjectName" placeholder="Alphanumeric, no spaces" />
-      </div>
-      <div class="form-group">
-        <label>
-          <input type="checkbox" id="moveCurrentProject" />
-          Move images & annotations from current project
-        </label>
       </div>
       <div class="actions">
         <button id="runCreateProject" class="primary">Create & Switch</button>
