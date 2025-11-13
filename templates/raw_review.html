@@ -19,9 +19,19 @@
   <section class="controls">
     <div class="left">
       <label>Filter: <input id="filterText" placeholder="filename contains..." /></label>
+      <label>Page Size
+        <select id="pageSize">
+          <option value="10">10</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+          <option value="500">500</option>
+        </select>
+      </label>
     </div>
     <div class="right">
-      <span id="imageCounter"></span>
+      <button id="btnPrev" title="Previous (←)">Prev</button>
+      <span id="pageInfo"></span>
+      <button id="btnNext" title="Next (→)">Next</button>
     </div>
   </section>
 

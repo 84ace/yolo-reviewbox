@@ -3,19 +3,27 @@
   const btnDelete = document.getElementById("btnDelete");
   const btnAccept = document.getElementById("btnAccept");
   const filterText = document.getElementById("filterText");
-  const imageCounter = document.getElementById("imageCounter");
+  const pageInfo = document.getElementById("pageInfo");
+  const pageSizeSel = document.getElementById("pageSize");
+  const btnPrev = document.getElementById("btnPrev");
+  const btnNext = document.getElementById("btnNext");
 
   let state = {
     images: [],
+    total: 0,
+    page: 1,
+    pageSize: 100,
     selected: new Set(),
     lastClickedIndex: null,
     filter: "",
   };
 
   async function fetchImages() {
-    const res = await fetch("/api/raw_images");
+    const url = `/api/raw_images?page=${state.page}&page_size=${state.pageSize}`;
+    const res = await fetch(url);
     const data = await res.json();
     state.images = data.images || [];
+    state.total = data.total || 0;
     await render();
   }
 
@@ -27,7 +35,7 @@
       imgs = imgs.filter(n => n.toLowerCase().includes(q));
     }
 
-    imageCounter.textContent = `${imgs.length} of ${state.images.length} images`;
+    pageInfo.textContent = `Page ${state.page} of ${Math.max(1, Math.ceil(state.total / state.pageSize))} — ${state.total} images`;
 
     imgs.forEach((name, i) => {
       const idx = i;
@@ -35,11 +43,6 @@
       tile.className = "tile";
       tile.dataset.name = name;
       if (state.selected.has(name)) tile.classList.add("selected");
-
-      const badge = document.createElement("div");
-      badge.className = "badge";
-      badge.textContent = name;
-      tile.appendChild(badge);
 
       const img = document.createElement("img");
       img.src = `/raw_image/${encodeURIComponent(name)}`;
@@ -131,6 +134,27 @@
   filterText.addEventListener("input", (e) => {
     state.filter = e.target.value;
     render();
+  });
+
+  btnPrev.addEventListener("click", () => {
+    if (state.page > 1) {
+      state.page -= 1;
+      fetchImages();
+    }
+  });
+
+  btnNext.addEventListener("click", () => {
+    const maxPage = Math.max(1, Math.ceil(state.total / state.pageSize));
+    if (state.page < maxPage) {
+      state.page += 1;
+      fetchImages();
+    }
+  });
+
+  pageSizeSel.addEventListener("change", () => {
+    state.pageSize = parseInt(pageSizeSel.value, 10);
+    state.page = 1;
+    fetchImages();
   });
 
   document.addEventListener("keydown", (e) => {

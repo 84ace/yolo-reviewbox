@@ -656,8 +656,23 @@ def list_raw_images_recursive() -> List[str]:
 
 @app.route("/api/raw_images")
 def api_raw_images():
+    try: page = int(request.args.get("page", "1"))
+    except: page = 1
+    try: page_size = int(request.args.get("page_size", str(PAGE_SIZE_DEFAULT)))
+    except: page_size = PAGE_SIZE_DEFAULT
+
     images = list_raw_images_recursive()
-    return jsonify({"images": images})
+
+    total = len(images)
+    start = max(0, (page - 1) * page_size)
+    end = min(total, start + page_size)
+
+    return jsonify({
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "images": images[start:end]
+    })
 
 @app.route("/raw_image/<path:fname>")
 def serve_raw_image(fname):
