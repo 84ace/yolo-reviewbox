@@ -206,17 +206,16 @@
   }
 
   async function acceptCurrent() {
-    if (isSaving) return;
     const name = images[idx]; if(!name) return;
-    isSaving = true;
+
     acceptBtn.disabled = true;
     const res = await fetch("/api/raw/accept", {
         method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({ files:[name], label: labelSelect.value||"" })
     });
     const data = await res.json();
-    isSaving = false;
     acceptBtn.disabled = false;
+
     if(data.errors && data.errors.length > 0){
       alert("Accept failed: " + JSON.stringify(data.errors));
     } else {
@@ -230,7 +229,13 @@
   backBtn.addEventListener("click", goBack);
   skipBtn.addEventListener("click", skip);
   delBtn.addEventListener("click", deleteCurrent);
-  acceptBtn.addEventListener("click", acceptCurrent);
+
+  acceptBtn.addEventListener("click", async () => {
+    if (isSaving) return;
+    isSaving = true;
+    await acceptCurrent();
+    isSaving = false;
+  });
 
   document.addEventListener("keydown",(e)=>{
     if (e.target.tagName==="INPUT" || e.target.tagName==="TEXTAREA") return;
