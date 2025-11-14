@@ -10,6 +10,7 @@
   const pageSizeSel = document.getElementById("pageSize");
   const btnPrev = document.getElementById("btnPrev");
   const btnNext = document.getElementById("btnNext");
+  const btnSelectAll = document.getElementById("btnSelectAll");
 
   let state = {
     images: [],
@@ -86,6 +87,10 @@
     const files = Array.from(state.selected);
     if (!files.length) {
       alert("No images selected.");
+      return;
+    }
+    if (!labelSelect.value) {
+      alert("Please select a class label first.");
       return;
     }
     if (!confirm(`Accept and classify ${files.length} images as '${labelSelect.value}'?`)) return;
@@ -168,11 +173,15 @@
   }
 
   function renderClasses(classes) {
+    const lastLabel = localStorage.getItem("rb-last-label");
     labelSelect.innerHTML = "";
     classes.forEach((c, i) => {
       const o = document.createElement("option");
       o.value = c;
       o.textContent = `${i + 1}. ${c}`;
+      if (c === lastLabel) {
+        o.selected = true;
+      }
       labelSelect.appendChild(o);
     });
   }
@@ -194,10 +203,23 @@
     labelSelect.value = val;
   });
 
+  btnSelectAll.addEventListener("click", () => {
+    const imgs = state.images;
+    const allSelected = imgs.every(n => state.selected.has(n));
+    if (allSelected) {
+      imgs.forEach(n => state.selected.delete(n));
+    } else {
+      imgs.forEach(n => state.selected.add(n));
+    }
+    render();
+  });
+
   document.addEventListener("keydown", (e) => {
     if (e.target.tagName === "INPUT") return;
     if (e.key === "d" || e.key === "D") deleteSelected();
-    if (e.key === "a" || e.key === "A") acceptSelected();
+    if (e.key === "a" || e.key === "A") {
+      btnSelectAll.click();
+    }
   });
 
   loadClasses().then(fetchImages);
