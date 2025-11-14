@@ -165,12 +165,18 @@
         x2:Math.round(Math.max(0, Math.min(w,x2))), y2:Math.round(Math.max(0, Math.min(h,y2))),
         label: labelSelect.value||""
       };
-      if(Math.abs(x2-x1)<5 || Math.abs(y2-y1)<5) return;
-      isSaving=true;
+      if (Math.abs(x2-x1) < 5 || Math.abs(y2-y1) < 5) {
+        console.log("Box too small, ignoring.");
+        return;
+      }
+
+      isSaving = true;
       const updatedBoxes = await saveBox(currName, box);
       annsCache[currName] = {...(annsCache[currName]||{}), boxes: updatedBoxes};
-      await drawImageWithBoxes(currCtx, currName);
-      isSaving=false;
+
+      // Immediately accept after drawing.
+      await acceptCurrent();
+      isSaving = false;
     }
     activeMouseUpHandler = onMouseUpOnce;
     window.addEventListener("mouseup", onMouseUpOnce);
@@ -193,7 +199,6 @@
   async function skip(){ if(idx<images.length-1){ idx+=1; await renderTriplet(); } }
   async function deleteCurrent(){
     const name = images[idx]; if(!name) return;
-    if(!confirm(`Delete ${name}? This cannot be undone.`)) return;
     const res = await fetch("/api/raw/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({files:[name]})});
     const data = await res.json();
     if(data.errors && data.errors.length > 0){ alert("Delete failed."); }
