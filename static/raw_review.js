@@ -1,226 +1,243 @@
 (() => {
-  const grid = document.getElementById("grid");
-  const btnDelete = document.getElementById("btnDelete");
-  const btnAccept = document.getElementById("btnAccept");
-  const filterText = document.getElementById("filterText");
-  const pageInfo = document.getElementById("pageInfo");
   const labelSelect = document.getElementById("labelSelect");
   const newLabel = document.getElementById("newLabel");
   const addLabelBtn = document.getElementById("addLabelBtn");
-  const pageSizeSel = document.getElementById("pageSize");
-  const btnPrev = document.getElementById("btnPrev");
-  const btnNext = document.getElementById("btnNext");
-  const btnSelectAll = document.getElementById("btnSelectAll");
+  const delBtn = document.getElementById("delBtn");
+  const backBtn = document.getElementById("backBtn");
+  const skipBtn = document.getElementById("skipBtn");
+  const acceptBtn = document.getElementById("acceptBtn");
 
-  let state = {
-    images: [],
-    total: 0,
-    page: 1,
-    pageSize: 50,
-    selected: new Set(),
-    lastClickedIndex: null,
-    filter: "",
-  };
+  const prevCanvas = document.getElementById("prevCanvas");
+  const currCanvas = document.getElementById("currCanvas");
+  const nextCanvas = document.getElementById("nextCanvas");
 
-  async function fetchImages() {
-    const url = `/api/raw_images?page=${state.page}&page_size=${state.pageSize}`;
-    const res = await fetch(url);
-    const data = await res.json();
-    state.images = data.images || [];
-    state.total = data.total || 0;
-    await render();
-  }
+  const prevCtx = prevCanvas.getContext("2d");
+  let currCtx = currCanvas.getContext("2d");
+  const nextCtx = nextCanvas.getContext("2d");
+  prevCtx.imageSmoothingEnabled = false;
+  currCtx.imageSmoothingEnabled = false;
+  nextCtx.imageSmoothingEnabled = false;
 
-  async function render() {
-    grid.innerHTML = "";
-    let imgs = state.images;
-    if (state.filter.trim()) {
-      const q = state.filter.toLowerCase();
-      imgs = imgs.filter(n => n.toLowerCase().includes(q));
-    }
+  let images = []; let idx = 0;
+  const annsCache = {};
+  let isDragging = false; let dragStart = null; let lastPos = null;
+  let activeMouseUpHandler = null;
+  let isSaving = false;
+  function imgUrl(n){ return `/raw_image/${encodeURIComponent(n)}`; }
 
-    pageInfo.textContent = `Page ${state.page} of ${Math.max(1, Math.ceil(state.total / state.pageSize))} — ${state.total} images`;
-
-    imgs.forEach((name, i) => {
-      const idx = i;
-      const tile = document.createElement("div");
-      tile.className = "tile";
-      tile.dataset.name = name;
-      if (state.selected.has(name)) tile.classList.add("selected");
-
-      const img = document.createElement("img");
-      img.src = `/raw_image/${encodeURIComponent(name)}`;
-      img.className = "thumb";
-      img.loading = "lazy";
-      img.width = 224;
-      img.height = 224;
-      tile.appendChild(img);
-
-      tile.addEventListener("click", (e) => {
-        const sel = state.selected;
-        if (e.shiftKey && state.lastClickedIndex !== null) {
-          const start = Math.min(state.lastClickedIndex, idx);
-          const end = Math.max(state.lastClickedIndex, idx);
-          for (let j = start; j <= end; j++) {
-            const name2 = imgs[j];
-            const tile2 = Array.from(grid.children).find(c => c.dataset.name === name2);
-            if (sel.has(name2)) {
-              sel.delete(name2);
-              if (tile2) tile2.classList.remove("selected");
-            } else {
-              sel.add(name2);
-              if (tile2) tile2.classList.add("selected");
-            }
-          }
-        } else {
-          if (sel.has(name)) sel.delete(name);
-          else sel.add(name);
-          state.lastClickedIndex = idx;
-        }
-        tile.classList.toggle("selected", sel.has(name));
-      });
-      grid.appendChild(tile);
-    });
-  }
-
-  async function acceptSelected() {
-    const files = Array.from(state.selected);
-    if (!files.length) {
-      alert("No images selected.");
-      return;
-    }
-    if (!labelSelect.value) {
-      alert("Please select a class label first.");
-      return;
-    }
-    if (!confirm(`Accept and classify ${files.length} images as '${labelSelect.value}'?`)) return;
-
-    btnAccept.disabled = true;
-    const res = await fetch("/api/raw/accept", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ files, label: labelSelect.value }),
-    });
-    const data = await res.json();
-    btnAccept.disabled = false;
-
-    if (data.errors && data.errors.length > 0) {
-      alert(`Some files could not be accepted:\n${JSON.stringify(data.errors)}`);
-    }
-
-    state.selected.clear();
-    await fetchImages();
-  }
-
-  async function deleteSelected() {
-    const files = Array.from(state.selected);
-    if (!files.length) {
-      alert("No images selected.");
-      return;
-    }
-    if (!confirm(`Permanently delete ${files.length} images? This cannot be undone.`)) return;
-
-    btnDelete.disabled = true;
-    const res = await fetch("/api/raw/delete", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ files }),
-    });
-    const data = await res.json();
-    btnDelete.disabled = false;
-
-    if (data.errors && data.errors.length > 0) {
-      alert(`Some files could not be deleted:\n${JSON.stringify(data.errors)}`);
-    }
-
-    state.selected.clear();
-    await fetchImages();
-  }
-
-  btnAccept.addEventListener("click", acceptSelected);
-  btnDelete.addEventListener("click", deleteSelected);
-  filterText.addEventListener("input", (e) => {
-    state.filter = e.target.value;
-    render();
-  });
-
-  btnPrev.addEventListener("click", () => {
-    if (state.page > 1) {
-      state.page -= 1;
-      fetchImages();
-    }
-  });
-
-  btnNext.addEventListener("click", () => {
-    const maxPage = Math.max(1, Math.ceil(state.total / state.pageSize));
-    if (state.page < maxPage) {
-      state.page += 1;
-      fetchImages();
-    }
-  });
-
-  pageSizeSel.addEventListener("change", () => {
-    state.pageSize = parseInt(pageSizeSel.value, 10);
-    state.page = 1;
-    fetchImages();
-  });
-
-  async function loadClasses() {
-    const res = await fetch("/api/classes");
-    const data = await res.json();
+  async function loadClasses(){
+    const res = await fetch("/api/classes"); const data = await res.json();
     const classes = data.classes || [];
     renderClasses(classes);
   }
-
-  function renderClasses(classes) {
-    const lastLabel = localStorage.getItem("rb-last-label");
+  function renderClasses(classes){
     labelSelect.innerHTML = "";
-    classes.forEach((c, i) => {
-      const o = document.createElement("option");
-      o.value = c;
-      o.textContent = `${i + 1}. ${c}`;
-      if (c === lastLabel) {
-        o.selected = true;
+    classes.forEach((c,i)=>{ const o=document.createElement("option"); o.value=c; o.textContent=`${i+1}. ${c}`; labelSelect.appendChild(o); });
+    const lastLabel = localStorage.getItem("rb-last-label");
+    if(lastLabel && classes.includes(lastLabel)){ labelSelect.value = lastLabel; }
+  }
+  addLabelBtn.addEventListener("click", async ()=>{
+    const val = (newLabel.value||"").trim(); if(!val) return;
+    const existing = Array.from(labelSelect.options).map(o=>o.value);
+    if(!existing.includes(val)) existing.push(val);
+    renderClasses(existing); newLabel.value="";
+    await fetch("/api/classes",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({classes:existing})});
+    labelSelect.value = val;
+  });
+  labelSelect.addEventListener("change", ()=>{ localStorage.setItem("rb-last-label", labelSelect.value || ""); });
+
+  async function loadImages(){
+    let url = `/api/raw_images?page=1&page_size=2500`;
+    const res = await fetch(url); const data = await res.json();
+    images = data.images || [];
+    idx = 0;
+    await renderTriplet();
+  }
+
+  async function renderTriplet(){
+    localStorage.setItem("rb-raw-review-idx", String(idx));
+    const prevName = images[idx-1], currName = images[idx], nextName = images[idx+1];
+    [prevCtx, currCtx, nextCtx].forEach(ctx=>{
+      const canvas = ctx.canvas;
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.fillStyle="#0b0b0c";
+      ctx.fillRect(0,0,canvas.width,canvas.height);
+    });
+    if(prevName) await drawImageWithBoxes(prevCtx, prevName);
+    if(currName) await drawImageWithBoxes(currCtx, currName);
+    if(nextName) await drawImageWithBoxes(nextCtx, nextName);
+    attachDrawHandlers(currName);
+  }
+  async function drawImageWithBoxes(ctx, name){
+    const img = new Image();
+    img.src = imgUrl(name);
+    try { await img.decode(); } catch(e){ console.error("img decode error",e); return; }
+
+    const { naturalWidth: w, naturalHeight: h } = img;
+    const canvas = ctx.canvas;
+    const maxH = 450;
+    const scale = maxH / h;
+    const dw = w * scale;
+    const dh = h * scale;
+    canvas.width = dw; canvas.height = dh;
+
+    ctx.drawImage(img, 0, 0, dw, dh);
+
+    let anns = annsCache[name];
+    if(!anns){
+      try{
+        const res = await fetch(`/api/raw/annotation?image=${encodeURIComponent(name)}&t=${Date.now()}`, {cache: "no-store"});
+        anns = await res.json();
+        annsCache[name] = anns;
+      }catch(e){
+        console.error("failed to fetch annotations", e);
+        anns = {boxes:[], w, h};
       }
-      labelSelect.appendChild(o);
+    }
+
+    (anns.boxes || []).forEach(b => {
+      if (b.label === "__null__") return;
+      const x = Math.min(b.x1, b.x2) * scale;
+      const y = Math.min(b.y1, b.y2) * scale;
+      const bw = Math.abs(b.x2 - b.x1) * scale;
+      const bh = Math.abs(b.y2 - b.y1) * scale;
+      ctx.save();
+      ctx.strokeStyle = colorFromString(b.label);
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x, y, bw, bh);
+      if(b.label){
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        const t=b.label, pad=6;
+        const tw = ctx.measureText(t).width+pad*2;
+        const boxH = 18;
+        ctx.fillRect(x, Math.max(0, y - boxH), tw, boxH);
+        ctx.fillStyle="#fff"; ctx.font="14px system-ui";
+        ctx.fillText(t, x+pad, Math.max(12, y-4));
+      }
+      ctx.restore();
     });
   }
 
-  addLabelBtn.addEventListener("click", async () => {
-    const val = (newLabel.value || "").trim();
-    if (!val) return;
-    const existing = Array.from(labelSelect.options).map(o => o.value);
-    if (!existing.includes(val)) {
-      existing.push(val);
-    }
-    renderClasses(existing);
-    newLabel.value = "";
-    await fetch("/api/classes", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ classes: existing }),
+  function attachDrawHandlers(currName){
+    const old = document.getElementById("currCanvas");
+    const clone = old.cloneNode(true);
+    old.parentNode.replaceChild(clone, old);
+    currCtx = clone.getContext("2d");
+    currCtx.imageSmoothingEnabled = false;
+    drawImageWithBoxes(currCtx, currName);
+
+    if (activeMouseUpHandler) window.removeEventListener("mouseup", activeMouseUpHandler);
+    isDragging=false; dragStart=null; lastPos=null;
+
+    clone.addEventListener("mousedown",(e)=>{
+      isDragging=true; const r=clone.getBoundingClientRect();
+      dragStart={x:Math.floor(e.clientX-r.left), y:Math.floor(e.clientY-r.top)};
+      lastPos={...dragStart};
     });
-    labelSelect.value = val;
-  });
+    clone.addEventListener("mousemove",(e)=>{
+      const r=clone.getBoundingClientRect();
+      lastPos={x:Math.floor(e.clientX-r.left), y:Math.floor(e.clientY-r.top)};
+      if(!isDragging) return;
+      drawImageWithBoxes(currCtx, currName).then(()=>{
+        currCtx.save(); currCtx.setLineDash([4,3]);
+        currCtx.strokeStyle = colorFromString(labelSelect.value || "");
+        currCtx.lineWidth=2;
+        currCtx.strokeRect(dragStart.x, dragStart.y, lastPos.x-dragStart.x, lastPos.y-dragStart.y);
+        currCtx.restore();
+      });
+    });
 
-  btnSelectAll.addEventListener("click", () => {
-    const imgs = state.images;
-    const allSelected = imgs.every(n => state.selected.has(n));
-    if (allSelected) {
-      imgs.forEach(n => state.selected.delete(n));
+    async function onMouseUpOnce(e){
+      if(!isDragging || isSaving) return;
+      isDragging=false; window.removeEventListener("mouseup", onMouseUpOnce); activeMouseUpHandler = null;
+      if(!dragStart || !lastPos) return;
+
+      const canvas = currCtx.canvas;
+      const { width: dw, height: dh } = canvas;
+      const { w, h } = annsCache[currName] || {w:dw,h:dh};
+      const scale = dh / h;
+
+      const x1 = dragStart.x/scale, y1 = dragStart.y/scale;
+      const x2 = lastPos.x/scale, y2 = lastPos.y/scale;
+
+      const box = {
+        x1:Math.round(Math.max(0, Math.min(w,x1))), y1:Math.round(Math.max(0, Math.min(h,y1))),
+        x2:Math.round(Math.max(0, Math.min(w,x2))), y2:Math.round(Math.max(0, Math.min(h,y2))),
+        label: labelSelect.value||""
+      };
+      if(Math.abs(x2-x1)<5 || Math.abs(y2-y1)<5) return;
+      isSaving=true;
+      const updatedBoxes = await saveBox(currName, box);
+      annsCache[currName] = {...(annsCache[currName]||{}), boxes: updatedBoxes};
+      await drawImageWithBoxes(currCtx, currName);
+      isSaving=false;
+    }
+    activeMouseUpHandler = onMouseUpOnce;
+    window.addEventListener("mouseup", onMouseUpOnce);
+  }
+
+  async function saveBox(imageName, newBoxOrBoxes, overwrite = false){
+    try{
+      const existing = (annsCache[imageName]||{}).boxes||[];
+      const newBoxes = Array.isArray(newBoxOrBoxes) ? newBoxOrBoxes : [newBoxOrBoxes];
+      const finalBoxes = overwrite ? newBoxes : [...existing, ...newBoxes];
+      await fetch("/api/raw/annotation", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ image:imageName, boxes: finalBoxes })
+      });
+      return finalBoxes;
+    }catch(e){ console.error("Save failed", e); return []; }
+  }
+
+  async function goBack(){ if(idx>0){ idx-=1; await renderTriplet(); } }
+  async function skip(){ if(idx<images.length-1){ idx+=1; await renderTriplet(); } }
+  async function deleteCurrent(){
+    const name = images[idx]; if(!name) return;
+    if(!confirm(`Delete ${name}? This cannot be undone.`)) return;
+    const res = await fetch("/api/raw/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({files:[name]})});
+    const data = await res.json();
+    if(data.errors && data.errors.length > 0){ alert("Delete failed."); }
+    else{ images.splice(idx,1); if(idx>=images.length)idx=Math.max(0,images.length-1); await renderTriplet(); }
+  }
+
+  async function acceptCurrent() {
+    if (isSaving) return;
+    const name = images[idx]; if(!name) return;
+    isSaving = true;
+    acceptBtn.disabled = true;
+    const res = await fetch("/api/raw/accept", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ files:[name], label: labelSelect.value||"" })
+    });
+    const data = await res.json();
+    isSaving = false;
+    acceptBtn.disabled = false;
+    if(data.errors && data.errors.length > 0){
+      alert("Accept failed: " + JSON.stringify(data.errors));
     } else {
-      imgs.forEach(n => state.selected.add(n));
+      delete annsCache[name];
+      images.splice(idx,1);
+      if(idx>=images.length)idx=Math.max(0,images.length-1);
+      await renderTriplet();
     }
-    render();
+  }
+
+  backBtn.addEventListener("click", goBack);
+  skipBtn.addEventListener("click", skip);
+  delBtn.addEventListener("click", deleteCurrent);
+  acceptBtn.addEventListener("click", acceptCurrent);
+
+  document.addEventListener("keydown",(e)=>{
+    if (e.target.tagName==="INPUT" || e.target.tagName==="TEXTAREA") return;
+    if (e.key==="ArrowLeft") goBack();
+    if (e.key===" "){ e.preventDefault(); skip(); }
+    if (e.key==="Delete") deleteCurrent();
+    if (e.key==="Enter") acceptCurrent();
+    if (e.key>="1" && e.key<="9"){
+      const n=parseInt(e.key,10)-1;
+      if(n>=0 && n<labelSelect.options.length){ labelSelect.selectedIndex=n; localStorage.setItem("rb-last-label", labelSelect.value || ""); }
+    }
   });
 
-  document.addEventListener("keydown", (e) => {
-    if (e.target.tagName === "INPUT") return;
-    if (e.key === "d" || e.key === "D") deleteSelected();
-    if (e.key === "a" || e.key === "A") {
-      btnSelectAll.click();
-    }
-  });
-
-  loadClasses().then(fetchImages);
+  loadClasses().then(loadImages);
 })();

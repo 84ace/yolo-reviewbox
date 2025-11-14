@@ -120,6 +120,10 @@ def voc_xml_path(img_name: str) -> str:
     base, _ = os.path.splitext(img_name)
     return os.path.join(annotation_dir, base + ".xml")
 
+def raw_voc_xml_path(img_name: str) -> str:
+    base, _ = os.path.splitext(img_name)
+    return os.path.join(RAW_IMAGES_DIR, ".tmp", base + ".xml")
+
 @app.route("/")
 def index():
     return render_template("index.html", app_title=APP_TITLE, page_size=PAGE_SIZE_DEFAULT)
@@ -734,6 +738,54 @@ def serve_raw_image(fname):
 
     return send_from_directory(RAW_IMAGES_DIR, fname)
 
+@app.route("/api/raw/annotation", methods=["GET", "POST"])
+def api_raw_annotation():
+    if request.method == "GET":
+        img = request.args.get("image","")
+        if ".." in img or os.path.isabs(img): abort(400, "Invalid image name.")
+        axml = raw_voc_xml_path(img)
+        boxes = []
+        w, h = -1, -1
+        if os.path.exists(axml):
+            try:
+                root = ET.parse(axml).getroot()
+                size_el = root.find("size")
+                if size_el:
+                    w = int(size_el.findtext("width", "-1"))
+                    h = int(size_el.findtext("height", "-1"))
+
+                for obj in root.findall("object"):
+                    bnd = obj.find("bndbox")
+                    if bnd is None: continue
+                    boxes.append({
+                        "label": obj.findtext("name","object"),
+                        "x1": int(bnd.findtext("xmin","0")), "y1": int(bnd.findtext("ymin","0")),
+                        "x2": int(bnd.findtext("xmax","0")), "y2": int(bnd.findtext("ymax","0")),
+                    })
+            except Exception as e:
+                return jsonify({"boxes": boxes, "error": str(e), "w": w, "h": h}), 200
+
+        if w < 0:
+            w, h = img_size(os.path.join(RAW_IMAGES_DIR, img))
+
+        resp = jsonify({"boxes": boxes, "w": w, "h": h})
+        resp.headers["Cache-Control"] = "no-store, max-age=0"
+        return resp
+    else: # POST
+        data = request.get_json(force=True, silent=True) or {}
+        img = data.get("image"); boxes = data.get("boxes", [])
+        if not img or ".." in img or os.path.isabs(img): abort(400, "Invalid image.")
+        path = os.path.join(RAW_IMAGES_DIR, img)
+        if not os.path.exists(path): abort(404, "Image not found.")
+
+        tmp_dir = os.path.join(RAW_IMAGES_DIR, ".tmp")
+        os.makedirs(tmp_dir, exist_ok=True)
+
+        w,h = img_size(path)
+        with open(raw_voc_xml_path(img), "wb") as f:
+            f.write(boxes_to_voc_xml(img, w, h, boxes))
+        return jsonify({"ok": True})
+
 @app.route("/api/raw/accept", methods=["POST"])
 def api_raw_accept():
     data = request.get_json(force=True, silent=True) or {}
@@ -743,26 +795,37 @@ def api_raw_accept():
     errors = []
     dirs = get_active_project_dirs()
 
-    if not label:
-        abort(400, "A label must be provided.")
-
     for f in files:
         src_path = os.path.join(RAW_IMAGES_DIR, f)
+        raw_axml_path = raw_voc_xml_path(f)
 
         if not os.path.abspath(src_path).startswith(os.path.abspath(RAW_IMAGES_DIR)):
             errors.append({"file": f, "error": "Invalid path"})
             continue
-
         if not os.path.exists(src_path):
             errors.append({"file": f, "error": "Not found"})
             continue
 
         new_name = f.replace(os.sep, "_")
         dest_path = os.path.join(IMAGE_CATALOG_DIR, new_name)
+        dest_axml_path = voc_xml_path(new_name)
 
         try:
+            # Move image
             if not os.path.exists(dest_path):
                 shutil.move(src_path, dest_path)
+
+            # Move annotation if it exists, otherwise create a basic one
+            if os.path.exists(raw_axml_path):
+                shutil.move(raw_axml_path, dest_axml_path)
+            else:
+                if not label:
+                    errors.append({"file": f, "error": "No label provided for un-annotated image"})
+                    continue
+                w, h = img_size(dest_path)
+                box = {"label": label, "x1": 0, "y1": 0, "x2": w, "y2": h}
+                with open(dest_axml_path, "wb") as axml:
+                    axml.write(boxes_to_voc_xml(new_name, w, h, [box]))
 
             # Add to project if not already there
             with open(dirs["project_images"], "r+") as proj_f:
@@ -770,12 +833,6 @@ def api_raw_accept():
                 if new_name not in existing:
                     proj_f.seek(0, 2)
                     proj_f.write(new_name + "\n")
-
-            # Create a basic annotation file
-            w, h = img_size(dest_path)
-            box = {"label": label, "x1": 0, "y1": 0, "x2": w, "y2": h}
-            with open(voc_xml_path(new_name), "wb") as axml:
-                axml.write(boxes_to_voc_xml(new_name, w, h, [box]))
 
             accepted_files.append({"original": f, "new": new_name})
         except Exception as e:
