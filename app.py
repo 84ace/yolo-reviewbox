@@ -778,11 +778,12 @@ def api_raw_annotation():
         path = os.path.join(RAW_IMAGES_DIR, img)
         if not os.path.exists(path): abort(404, "Image not found.")
 
-        tmp_dir = os.path.join(RAW_IMAGES_DIR, ".tmp")
-        os.makedirs(tmp_dir, exist_ok=True)
+        xml_path = raw_voc_xml_path(img)
+        xml_dir = os.path.dirname(xml_path)
+        os.makedirs(xml_dir, exist_ok=True)
 
         w,h = img_size(path)
-        with open(raw_voc_xml_path(img), "wb") as f:
+        with open(xml_path, "wb") as f:
             f.write(boxes_to_voc_xml(img, w, h, boxes))
         return jsonify({"ok": True})
 
