@@ -181,7 +181,8 @@
       annsCache[currName] = {...(annsCache[currName]||{}), boxes: updatedBoxes};
 
       // Immediately accept after drawing.
-      await acceptCurrentWrapper();
+      await acceptCurrent();
+      isSaving = false;
     }
     activeMouseUpHandler = onMouseUpOnce;
     window.addEventListener("mouseup", onMouseUpOnce);
