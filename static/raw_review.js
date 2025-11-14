@@ -40,8 +40,9 @@
     const val = (newLabel.value||"").trim(); if(!val) return;
     const existing = Array.from(labelSelect.options).map(o=>o.value);
     if(!existing.includes(val)) existing.push(val);
-    renderClasses(existing); newLabel.value="";
     await fetch("/api/classes",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({classes:existing})});
+    newLabel.value="";
+    await loadClasses();
     labelSelect.value = val;
   });
   labelSelect.addEventListener("change", ()=>{ localStorage.setItem("rb-last-label", labelSelect.value || ""); });
@@ -130,6 +131,11 @@
     isDragging=false; dragStart=null; lastPos=null;
 
     clone.addEventListener("mousedown",(e)=>{
+      if (!labelSelect.value) {
+        alert("Please select a class label before annotating.");
+        isDragging = false;
+        return;
+      }
       isDragging=true; const r=clone.getBoundingClientRect();
       dragStart={x:Math.floor(e.clientX-r.left), y:Math.floor(e.clientY-r.top)};
       lastPos={...dragStart};
@@ -175,8 +181,7 @@
       annsCache[currName] = {...(annsCache[currName]||{}), boxes: updatedBoxes};
 
       // Immediately accept after drawing.
-      await acceptCurrent();
-      isSaving = false;
+      await acceptCurrentWrapper();
     }
     activeMouseUpHandler = onMouseUpOnce;
     window.addEventListener("mouseup", onMouseUpOnce);
@@ -230,19 +235,21 @@
   skipBtn.addEventListener("click", skip);
   delBtn.addEventListener("click", deleteCurrent);
 
-  acceptBtn.addEventListener("click", async () => {
+  const acceptCurrentWrapper = async () => {
     if (isSaving) return;
     isSaving = true;
     await acceptCurrent();
     isSaving = false;
-  });
+  };
+
+  acceptBtn.addEventListener("click", acceptCurrentWrapper);
 
   document.addEventListener("keydown",(e)=>{
     if (e.target.tagName==="INPUT" || e.target.tagName==="TEXTAREA") return;
     if (e.key==="ArrowLeft") goBack();
     if (e.key===" "){ e.preventDefault(); skip(); }
     if (e.key==="Delete") deleteCurrent();
-    if (e.key==="Enter") acceptCurrent();
+    if (e.key==="Enter") acceptCurrentWrapper();
     if (e.key>="1" && e.key<="9"){
       const n=parseInt(e.key,10)-1;
       if(n>=0 && n<labelSelect.options.length){ labelSelect.selectedIndex=n; localStorage.setItem("rb-last-label", labelSelect.value || ""); }
