@@ -3,21 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>{{ app_title }} — Raw Image Review</title>
+  <title>{{ app_title }} — Add From Catalog</title>
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body class="review">
   <header class="topbar">
     <a href="/" class="title">{{ app_title }}</a>
     <div class="actions">
-      <strong style="margin-right: 1em">Raw Image Review</strong>
-      <div class="form-group">
-        <select id="labelSelect"></select>
-        <input id="newLabel" placeholder="New Class Name" />
-        <button id="addLabelBtn">+</button>
-      </div>
-      <button id="btnAccept" title="Accept selected images into the catalog (A)">Accept & Classify</button>
-      <button id="btnDelete" title="Delete selected images permanently (D)">Delete Selected</button>
+      <strong style="margin-right: 1em">Add Images to Project</strong>
+      <button id="btnAdd" title="Add selected images to the project">Add Selected</button>
     </div>
   </header>
 
@@ -26,9 +20,9 @@
       <label>Filter: <input id="filterText" placeholder="filename contains..." /></label>
       <label>Page Size
         <select id="pageSize">
-          <option value="10">10</option>
           <option value="50" selected>50</option>
           <option value="100">100</option>
+          <option value="200">200</option>
           <option value="500">500</option>
         </select>
       </label>
@@ -43,6 +37,6 @@
   <section id="grid" class="grid"></section>
 
   <script src="/static/utils.js" defer></script>
-  <script src="/static/raw_review.js" defer></script>
+  <script src="/static/add_from_catalog.js" defer></script>
 </body>
 </html>

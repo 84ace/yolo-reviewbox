@@ -1,12 +1,8 @@
 (() => {
   const grid = document.getElementById("grid");
-  const btnDelete = document.getElementById("btnDelete");
-  const btnAccept = document.getElementById("btnAccept");
+  const btnAdd = document.getElementById("btnAdd");
   const filterText = document.getElementById("filterText");
   const pageInfo = document.getElementById("pageInfo");
-  const labelSelect = document.getElementById("labelSelect");
-  const newLabel = document.getElementById("newLabel");
-  const addLabelBtn = document.getElementById("addLabelBtn");
   const pageSizeSel = document.getElementById("pageSize");
   const btnPrev = document.getElementById("btnPrev");
   const btnNext = document.getElementById("btnNext");
@@ -22,7 +18,7 @@
   };
 
   async function fetchImages() {
-    const url = `/api/raw_images?page=${state.page}&page_size=${state.pageSize}`;
+    const url = `/api/catalog/available?page=${state.page}&page_size=${state.pageSize}`;
     const res = await fetch(url);
     const data = await res.json();
     state.images = data.images || [];
@@ -48,7 +44,7 @@
       if (state.selected.has(name)) tile.classList.add("selected");
 
       const img = document.createElement("img");
-      img.src = `/raw_image/${encodeURIComponent(name)}`;
+      img.src = `/image/${encodeURIComponent(name)}`;
       img.className = "thumb";
       img.loading = "lazy";
       img.width = 224;
@@ -82,58 +78,32 @@
     });
   }
 
-  async function acceptSelected() {
+  async function addSelected() {
     const files = Array.from(state.selected);
     if (!files.length) {
       alert("No images selected.");
       return;
     }
-    if (!confirm(`Accept and classify ${files.length} images as '${labelSelect.value}'?`)) return;
+    if (!confirm(`Add ${files.length} images to the project?`)) return;
 
-    btnAccept.disabled = true;
-    const res = await fetch("/api/raw/accept", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ files, label: labelSelect.value }),
-    });
-    const data = await res.json();
-    btnAccept.disabled = false;
-
-    if (data.errors && data.errors.length > 0) {
-      alert(`Some files could not be accepted:\n${JSON.stringify(data.errors)}`);
-    }
-
-    state.selected.clear();
-    await fetchImages();
-  }
-
-  async function deleteSelected() {
-    const files = Array.from(state.selected);
-    if (!files.length) {
-      alert("No images selected.");
-      return;
-    }
-    if (!confirm(`Permanently delete ${files.length} images? This cannot be undone.`)) return;
-
-    btnDelete.disabled = true;
-    const res = await fetch("/api/raw/delete", {
+    btnAdd.disabled = true;
+    const res = await fetch("/api/catalog/add_to_project", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ files }),
     });
     const data = await res.json();
-    btnDelete.disabled = false;
+    btnAdd.disabled = false;
 
     if (data.errors && data.errors.length > 0) {
-      alert(`Some files could not be deleted:\n${JSON.stringify(data.errors)}`);
+      alert(`Some files could not be added:\n${JSON.stringify(data.errors)}`);
     }
 
     state.selected.clear();
     await fetchImages();
   }
 
-  btnAccept.addEventListener("click", acceptSelected);
-  btnDelete.addEventListener("click", deleteSelected);
+  btnAdd.addEventListener("click", addSelected);
   filterText.addEventListener("input", (e) => {
     state.filter = e.target.value;
     render();
@@ -160,45 +130,10 @@
     fetchImages();
   });
 
-  async function loadClasses() {
-    const res = await fetch("/api/classes");
-    const data = await res.json();
-    const classes = data.classes || [];
-    renderClasses(classes);
-  }
-
-  function renderClasses(classes) {
-    labelSelect.innerHTML = "";
-    classes.forEach((c, i) => {
-      const o = document.createElement("option");
-      o.value = c;
-      o.textContent = `${i + 1}. ${c}`;
-      labelSelect.appendChild(o);
-    });
-  }
-
-  addLabelBtn.addEventListener("click", async () => {
-    const val = (newLabel.value || "").trim();
-    if (!val) return;
-    const existing = Array.from(labelSelect.options).map(o => o.value);
-    if (!existing.includes(val)) {
-      existing.push(val);
-    }
-    renderClasses(existing);
-    newLabel.value = "";
-    await fetch("/api/classes", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ classes: existing }),
-    });
-    labelSelect.value = val;
-  });
-
   document.addEventListener("keydown", (e) => {
     if (e.target.tagName === "INPUT") return;
-    if (e.key === "d" || e.key === "D") deleteSelected();
-    if (e.key === "a" || e.key === "A") acceptSelected();
+    if (e.key === "Enter") addSelected();
   });
 
-  loadClasses().then(fetchImages);
+  fetchImages();
 })();

@@ -352,6 +352,9 @@
   btnDelete.addEventListener("click", deleteSelected);
   btnExport.addEventListener("click", exportVOC);
   btnImport.addEventListener("click", () => importFile.click());
+  document.getElementById("btnAddFromCatalog").addEventListener("click", () => {
+    window.location.href = "/add_from_catalog";
+  });
   importFile.addEventListener("change", importVOC);
   addRemapRow.addEventListener("click", addRemapRowLogic);
   runExport.addEventListener("click", runExportLogic);

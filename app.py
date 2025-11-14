@@ -132,6 +132,54 @@ def review_mode():
 def raw_review_page():
     return render_template("raw_review.html", app_title=APP_TITLE)
 
+@app.route("/add_from_catalog")
+def add_from_catalog_page():
+    return render_template("add_from_catalog.html", app_title=APP_TITLE)
+
+@app.route("/api/catalog/available")
+def api_catalog_available():
+    try: page = int(request.args.get("page", "1"))
+    except: page = 1
+    try: page_size = int(request.args.get("page_size", str(PAGE_SIZE_DEFAULT)))
+    except: page_size = PAGE_SIZE_DEFAULT
+
+    dirs = get_active_project_dirs()
+    with open(dirs["project_images"], "r") as f:
+        project_images = {line.strip() for line in f}
+
+    catalog_images = {f for f in os.listdir(IMAGE_CATALOG_DIR) if os.path.isfile(os.path.join(IMAGE_CATALOG_DIR, f))}
+    available_images = sorted(list(catalog_images - project_images))
+
+    total = len(available_images)
+    start = max(0, (page - 1) * page_size)
+    end = min(total, start + page_size)
+
+    return jsonify({
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "images": available_images[start:end]
+    })
+
+@app.route("/api/catalog/add_to_project", methods=["POST"])
+def api_catalog_add_to_project():
+    data = request.get_json(force=True, silent=True) or {}
+    files = data.get("files", [])
+    errors = []
+    dirs = get_active_project_dirs()
+
+    try:
+        with open(dirs["project_images"], "a") as f:
+            for file in files:
+                if is_safe_filename(file):
+                    f.write(file + "\n")
+                else:
+                    errors.append({"file": file, "error": "Invalid filename"})
+    except Exception as e:
+        errors.append({"error": str(e)})
+
+    return jsonify({"ok": True, "errors": errors})
+
 @app.route("/annotate")
 def annotate_page():
     img = request.args.get("image","")
@@ -690,9 +738,13 @@ def serve_raw_image(fname):
 def api_raw_accept():
     data = request.get_json(force=True, silent=True) or {}
     files = data.get("files", [])
+    label = data.get("label")
     accepted_files = []
     errors = []
     dirs = get_active_project_dirs()
+
+    if not label:
+        abort(400, "A label must be provided.")
 
     for f in files:
         src_path = os.path.join(RAW_IMAGES_DIR, f)
@@ -708,24 +760,26 @@ def api_raw_accept():
         new_name = f.replace(os.sep, "_")
         dest_path = os.path.join(IMAGE_CATALOG_DIR, new_name)
 
-        if os.path.exists(dest_path):
-            # If the destination already exists, don't move, just ensure it's in the project
-            pass
-        else:
-            try:
+        try:
+            if not os.path.exists(dest_path):
                 shutil.move(src_path, dest_path)
-            except Exception as e:
-                errors.append({"file": f, "error": str(e)})
-                continue
 
-        # Add to project if not already there
-        with open(dirs["project_images"], "r+") as proj_f:
-            existing = {line.strip() for line in proj_f}
-            if new_name not in existing:
-                proj_f.seek(0, 2) # Go to the end of the file
-                proj_f.write(new_name + "\n")
+            # Add to project if not already there
+            with open(dirs["project_images"], "r+") as proj_f:
+                existing = {line.strip() for line in proj_f}
+                if new_name not in existing:
+                    proj_f.seek(0, 2)
+                    proj_f.write(new_name + "\n")
 
-        accepted_files.append({"original": f, "new": new_name})
+            # Create a basic annotation file
+            w, h = img_size(dest_path)
+            box = {"label": label, "x1": 0, "y1": 0, "x2": w, "y2": h}
+            with open(voc_xml_path(new_name), "wb") as axml:
+                axml.write(boxes_to_voc_xml(new_name, w, h, [box]))
+
+            accepted_files.append({"original": f, "new": new_name})
+        except Exception as e:
+            errors.append({"file": f, "error": str(e)})
 
     for root, dirs, files in os.walk(RAW_IMAGES_DIR, topdown=False):
         if not dirs and not files:
