@@ -3,47 +3,68 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>{{ app_title }} — Raw Image Review</title>
+  <title>{{ app_title }} — Raw Review</title>
   <link rel="stylesheet" href="/static/styles.css" />
+  <style>
+    .review-wrap { display: grid; grid-template-columns: 1fr; gap: 10px; padding: 10px; }
+    .row { display: grid; grid-template-columns: 1fr 2fr 1fr; gap: 12px; align-items: center; }
+    .pane { display: flex; justify-content: center; align-items: center; padding: 6px; background: #121214; border: 1px solid #2a2a2e; border-radius: 10px; position: relative; }
+    .pane canvas { max-width: 100%; max-height: 450px; height: auto; }
+    .pane .label { position: absolute; background: rgba(0,0,0,0.6); padding: 4px 8px; border-radius: 999px; font-size: 12px; top: 10px; left: 10px; }
+    .controls { display: flex; justify-content: center; gap: 8px; }
+    .controls button, .controls select, .controls input { background: #1a1a1c; color: #f7f7f7; border: 1px solid #2a2a2e; padding: 8px 10px; border-radius: 8px; }
+    .controls .primary { background: #17A2B8; color: #fff; font-weight: 700; border-color: #17A2B8; }
+    .hint { text-align: center; color: #9b9ba3; }
+    canvas { image-rendering: pixelated; }
+    .center { position: relative; }
+    .side { position: relative; opacity: 0.95; }
+    .kbd { border: 1px solid #333; border-bottom-width: 3px; border-radius: 6px; padding: 2px 6px; margin: 0 2px; font-size: 12px; background: #161618; }
+  </style>
 </head>
-<body class="review">
-  <header class="topbar">
-    <a href="/" class="title">{{ app_title }}</a>
-    <div class="actions">
-      <strong style="margin-right: 1em">Raw Image Review</strong>
-      <div class="form-group">
-        <select id="labelSelect"></select>
-        <input id="newLabel" placeholder="New Class Name" />
-        <button id="addLabelBtn">+</button>
-      </div>
-      <button id="btnAccept" title="Accept selected images into the catalog (A)">Accept & Classify</button>
-      <button id="btnDelete" title="Delete selected images permanently (D)">Delete Selected</button>
-    </div>
-  </header>
+<body>
+<header class="topbar">
+  <div class="title">Raw Review Mode</div>
+  <div class="actions">
+    <a class="annotate" href="/" style="text-decoration:none;padding:6px 10px;">Back to Grid</a>
+  </div>
+</header>
 
-  <section class="controls">
-    <div class="left">
-      <label>Filter: <input id="filterText" placeholder="filename contains..." /></label>
-      <button id="btnSelectAll">Select All on Page</button>
-      <label>Page Size
-        <select id="pageSize">
-          <option value="10">10</option>
-          <option value="50" selected>50</option>
-          <option value="100">100</option>
-          <option value="500">500</option>
-        </select>
-      </label>
-    </div>
-    <div class="right">
-      <button id="btnPrev" title="Previous (←)">Prev</button>
-      <span id="pageInfo"></span>
-      <button id="btnNext" title="Next (→)">Next</button>
-    </div>
-  </section>
+<section class="review-wrap">
+  <div class="controls">
+    <select id="labelSelect"></select>
+    <input id="newLabel" placeholder="new class…" />
+    <button id="addLabelBtn">Add Class</button>
+    <button id="delBtn" title="Delete current (Del)">Delete</button>
+    <button id="backBtn" title="Back (←)">◀ Back</button>
+    <button id="skipBtn" title="Skip (Space)">Skip ▶</button>
+    <button id="acceptBtn" class="primary" title="Accept (Enter)">Accept ✔</button>
+  </div>
 
-  <section id="grid" class="grid"></section>
+  <div class="row">
+    <div class="pane side">
+      <div class="label">Previous</div>
+      <canvas id="prevCanvas" width="448" height="448"></canvas>
+    </div>
 
-  <script src="/static/utils.js" defer></script>
-  <script src="/static/raw_review.js" defer></script>
+    <div class="pane center">
+      <div class="label">Current (draw to annotate)</div>
+      <canvas id="currCanvas" width="672" height="672"></canvas>
+    </div>
+
+    <div class="pane side">
+      <div class="label">Next</div>
+      <canvas id="nextCanvas" width="448" height="448"></canvas>
+    </div>
+  </div>
+
+  <div class="hint">
+    Drag to draw a box, it saves instantly.
+    Quick keys:
+    <span class="kbd">1–9</span> select class, <span class="kbd">←</span> back, <span class="kbd">Space</span> skip, <span class="kbd">Del</span> delete, <span class="kbd">Enter</span> accept.
+  </div>
+</section>
+
+<script src="/static/utils.js" defer></script>
+<script src="/static/raw_review.js" defer></script>
 </body>
 </html>
