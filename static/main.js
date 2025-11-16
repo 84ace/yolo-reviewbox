@@ -453,7 +453,6 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name,
-          move_from: moveCurrentProject.checked ? state.project : null,
         }),
       });
       const data = await res.json();
