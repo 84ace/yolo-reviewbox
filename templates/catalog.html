@@ -128,16 +128,17 @@ function renderImages(images) {
         const tile = document.createElement('div');
         tile.className = 'tile';
 
-        const link = document.createElement('a');
-        link.href = `/annotate?image=${encodeURIComponent(image)}`;
-
         const img = document.createElement('img');
         img.src = `/image/${encodeURIComponent(image)}`;
         img.className = 'thumb';
         img.alt = image;
+        tile.appendChild(img);
 
-        link.appendChild(img);
-        tile.appendChild(link);
+        const editLink = document.createElement('a');
+        editLink.href = `/annotate?image=${encodeURIComponent(image)}`;
+        editLink.className = 'btn btn-sm btn-outline-light edit-btn';
+        editLink.textContent = 'Edit';
+        tile.appendChild(editLink);
 
         const projects = projectAssociations[image];
         if (projects && projects.length > 0) {
@@ -210,8 +211,11 @@ document.addEventListener('DOMContentLoaded', () => {
     grid.style.gridTemplateColumns = `repeat(auto-fill, minmax(${thumbSize}px, 1fr))`;
 
     grid.addEventListener('click', (e) => {
+        if (e.target.classList.contains('edit-btn')) {
+            return;
+        }
         const tile = e.target.closest('.tile');
-        if (tile && e.target.tagName !== 'A') {
+        if (tile) {
             tile.classList.toggle('selected');
             updateReviewButton();
         }
