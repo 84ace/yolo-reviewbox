@@ -390,6 +390,15 @@
     const projects = data.projects || [];
     state.project = data.active;
     projectSwitcher.innerHTML = "";
+    if (projects.length === 0) {
+        // Handle no projects case
+        const opt = document.createElement("option");
+        opt.textContent = "No projects yet";
+        projectSwitcher.appendChild(opt);
+        projectSwitcher.disabled = true;
+        btnNewProject.click(); // Open the new project modal
+        return;
+    }
     projects.forEach(p => {
       const opt = document.createElement("option");
       opt.value = p;
@@ -426,7 +435,6 @@
 
   function showNewProjectModal() {
     newProjectName.value = "";
-    moveCurrentProject.checked = false;
     newProjectModal.style.display = "flex";
     newProjectName.focus();
   }

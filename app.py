@@ -21,7 +21,7 @@ def get_active_project() -> str:
     if os.path.exists(ACTIVE_PROJECT_FILE):
         with open(ACTIVE_PROJECT_FILE, "r") as f:
             return f.read().strip()
-    return "default"
+    return None
 
 def set_active_project(name: str):
     os.makedirs(PROJECTS_ROOT_DIR, exist_ok=True)
@@ -36,7 +36,10 @@ def get_project_dirs(project_name: str) -> Dict[str, str]:
     }
 
 def get_active_project_dirs() -> Dict[str, str]:
-    return get_project_dirs(get_active_project())
+    active_project = get_active_project()
+    if active_project:
+        return get_project_dirs(active_project)
+    return None
 
 def ensure_project_dirs_exist(project_name: str):
     dirs = get_project_dirs(project_name)
@@ -45,8 +48,6 @@ def ensure_project_dirs_exist(project_name: str):
         with open(dirs["project_images"], "w") as f:
             pass  # Create an empty file
 
-# Ensure default project exists on startup
-ensure_project_dirs_exist(get_active_project())
 os.makedirs(RAW_IMAGES_DIR, exist_ok=True)
 os.makedirs(IMAGE_CATALOG_DIR, exist_ok=True)
 os.makedirs(ANNOTATION_CATALOG_DIR, exist_ok=True)
@@ -58,6 +59,8 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
 def list_images_sorted() -> List[str]:
     dirs = get_active_project_dirs()
+    if not dirs:
+        return []
     images_file = dirs["project_images"]
     if not os.path.exists(images_file):
         return []
@@ -154,8 +157,10 @@ def api_catalog_available():
     except: page_size = PAGE_SIZE_DEFAULT
 
     dirs = get_active_project_dirs()
-    with open(dirs["project_images"], "r") as f:
-        project_images = {line.strip() for line in f}
+    project_images = set()
+    if dirs:
+        with open(dirs["project_images"], "r") as f:
+            project_images = {line.strip() for line in f}
 
     catalog_images = {f for f in os.listdir(IMAGE_CATALOG_DIR) if os.path.isfile(os.path.join(IMAGE_CATALOG_DIR, f))}
     available_images = sorted(list(catalog_images - project_images))
@@ -210,12 +215,44 @@ def api_catalog_project_associations():
                         associations[image].append(project)
     return jsonify(associations)
 
+@app.route("/api/catalog/delete", methods=["POST"])
+def api_catalog_delete():
+    data = request.get_json(force=True, silent=True) or {}
+    files_to_delete = data.get("files", [])
+    deleted_count = 0
+    errors = []
+
+    for filename in files_to_delete:
+        if not is_safe_filename(filename):
+            errors.append({"file": filename, "error": "Invalid filename"})
+            continue
+
+        try:
+            # Delete the image file
+            image_path = os.path.join(IMAGE_CATALOG_DIR, filename)
+            if os.path.exists(image_path):
+                os.remove(image_path)
+
+            # Delete the annotation file
+            annotation_path = catalog_voc_xml_path(filename)
+            if os.path.exists(annotation_path):
+                os.remove(annotation_path)
+
+            deleted_count += 1
+        except Exception as e:
+            errors.append({"file": filename, "error": str(e)})
+
+    return jsonify({"deleted_count": deleted_count, "errors": errors})
+
 @app.route("/api/catalog/add_to_project", methods=["POST"])
 def api_catalog_add_to_project():
     data = request.get_json(force=True, silent=True) or {}
     files = data.get("files", [])
     errors = []
     dirs = get_active_project_dirs()
+    if not dirs:
+        errors.append({"error": "No active project"})
+        return jsonify({"ok": False, "errors": errors})
 
     try:
         with open(dirs["project_images"], "a") as f:
@@ -315,6 +352,9 @@ def api_delete():
     errors = []
 
     dirs = get_active_project_dirs()
+    if not dirs:
+        errors.append({"error": "No active project"})
+        return jsonify({"deleted_count": 0, "errors": errors})
     images_file = dirs["project_images"]
 
     try:
@@ -531,6 +571,8 @@ def api_import_voc():
         imported_images = []
         failed_files = []
         dirs = get_active_project_dirs()
+        if not dirs:
+            return jsonify({"error": "No active project"}), 400
 
         with zipfile.ZipFile(file, 'r') as z:
             for item in z.infolist():
@@ -590,6 +632,8 @@ def api_import_images():
         imported_images = []
         failed_files = []
         dirs = get_active_project_dirs()
+        if not dirs:
+            return jsonify({"error": "No active project"}), 400
         with zipfile.ZipFile(file, 'r') as z:
             for item in z.infolist():
                 try:
@@ -650,6 +694,8 @@ def api_export_voc():
             remap_dict[f] = r.get("to")
 
     dirs = get_active_project_dirs()
+    if not dirs:
+        return jsonify({"error": "No active project"}), 400
     exports_dir = dirs["exports"]
 
     ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
@@ -729,12 +775,14 @@ def api_export_voc():
 def serve_export(fname):
     if "/" in fname or "\\" in fname or not fname.endswith(".zip"): abort(400)
     dirs = get_active_project_dirs()
+    if not dirs:
+        abort(404)
     exports_dir = dirs["exports"]
     return send_from_directory(exports_dir, fname, as_attachment=True)
 
 @app.route("/api/projects", methods=["GET"])
 def api_get_projects():
-    projects = [d for d in os.listdir(PROJECTS_ROOT_DIR) if os.path.isdir(os.path.join(PROJECTS_ROOT_DIR, d))]
+    projects = [d for d in os.listdir(PROJECTS_ROOT_DIR) if os.path.isdir(os.path.join(PROJECTS_ROOT_DIR, d)) and d != "exports"]
     return jsonify({
         "projects": sorted(projects),
         "active": get_active_project(),
