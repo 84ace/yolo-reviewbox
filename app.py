@@ -136,6 +136,10 @@ def review_mode():
 def raw_review_page():
     return render_template("raw_review.html", app_title=APP_TITLE)
 
+@app.route("/raw_review_classify")
+def raw_review_classify_page():
+    return render_template("raw_review_classify.html", app_title=APP_TITLE)
+
 @app.route("/add_from_catalog")
 def add_from_catalog_page():
     return render_template("add_from_catalog.html", app_title=APP_TITLE)
@@ -696,35 +700,42 @@ def api_create_project():
     set_active_project(name)
     return jsonify({"ok": True, "name": name})
 
-def list_raw_images_recursive() -> List[str]:
-    files = []
-    for root, _, filenames in os.walk(RAW_IMAGES_DIR):
-        for filename in filenames:
-            if any(filename.lower().endswith(ext) for ext in ALLOWED_EXTS):
-                relative_path = os.path.relpath(os.path.join(root, filename), RAW_IMAGES_DIR)
-                files.append(relative_path)
-    files.sort()
-    return files
+@app.route("/api/raw_browser")
+def api_raw_browser():
+    # Security: Ensure path is within RAW_IMAGES_DIR
+    path_param = request.args.get("path", "")
+    abs_path = os.path.abspath(os.path.join(RAW_IMAGES_DIR, path_param))
+    if not abs_path.startswith(RAW_IMAGES_DIR):
+        abort(400, "Invalid path.")
 
-@app.route("/api/raw_images")
-def api_raw_images():
-    try: page = int(request.args.get("page", "1"))
-    except: page = 1
-    try: page_size = int(request.args.get("page_size", str(PAGE_SIZE_DEFAULT)))
-    except: page_size = PAGE_SIZE_DEFAULT
+    recursive = request.args.get("recursive", "false").lower() == "true"
+    network_filter = request.args.get("network", "")
+    device_filter = request.args.get("device", "")
 
-    images = list_raw_images_recursive()
+    items = []
+    if recursive:
+        for root, dirs, files in os.walk(abs_path):
+            # Filtering logic for recursive view
+            if network_filter and not any(f.startswith(network_filter) for f in root.split(os.sep)):
+                continue
 
-    total = len(images)
-    start = max(0, (page - 1) * page_size)
-    end = min(total, start + page_size)
+            for name in files:
+                if device_filter and device_filter not in name:
+                    continue
+                if any(name.lower().endswith(ext) for ext in ALLOWED_EXTS):
+                    items.append(os.path.relpath(os.path.join(root, name), RAW_IMAGES_DIR))
+    else:
+        for item in os.listdir(abs_path):
+            item_abs_path = os.path.join(abs_path, item)
+            if os.path.isdir(item_abs_path):
+                items.append({"name": item, "type": "dir"})
+            elif any(item.lower().endswith(ext) for ext in ALLOWED_EXTS):
+                items.append({"name": item, "type": "file", "path": os.path.relpath(item_abs_path, RAW_IMAGES_DIR)})
 
-    return jsonify({
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "images": images[start:end]
-    })
+    # Sort directories first, then files
+    items.sort(key=lambda x: (x.get("type", "file") != "dir", x.get("name").lower()))
+
+    return jsonify(items)
 
 @app.route("/raw_image/<path:fname>")
 def serve_raw_image(fname):

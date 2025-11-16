@@ -48,9 +48,13 @@
   labelSelect.addEventListener("change", ()=>{ localStorage.setItem("rb-last-label", labelSelect.value || ""); });
 
   async function loadImages(){
-    let url = `/api/raw_images?page=1&page_size=2500`;
-    const res = await fetch(url); const data = await res.json();
-    images = data.images || [];
+    const files = JSON.parse(sessionStorage.getItem("classify_files") || "[]");
+    if (files.length === 0) {
+      alert("No files selected for classification.");
+      window.location.href = "/raw_review";
+      return;
+    }
+    images = files;
     idx = 0;
     await renderTriplet();
   }
