@@ -3,47 +3,31 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>{{ app_title }} — Raw Image Review</title>
+  <title>{{ app_title }} — Raw Image Browser</title>
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body class="review">
   <header class="topbar">
     <a href="/" class="title">{{ app_title }}</a>
     <div class="actions">
-      <strong style="margin-right: 1em">Raw Image Review</strong>
-      <div class="form-group">
-        <select id="labelSelect"></select>
-        <input id="newLabel" placeholder="New Class Name" />
-        <button id="addLabelBtn">+</button>
-      </div>
-      <button id="btnAccept" title="Accept selected images into the catalog (A)">Accept & Classify</button>
-      <button id="btnDelete" title="Delete selected images permanently (D)">Delete Selected</button>
+      <strong style="margin-right: 1em">Raw Image Browser</strong>
+      <button id="btnClassify" title="Classify selected images">Classify Selected</button>
+      <button id="btnDelete" title="Delete selected images permanently">Delete Selected</button>
     </div>
   </header>
 
   <section class="controls">
     <div class="left">
-      <label>Filter: <input id="filterText" placeholder="filename contains..." /></label>
-      <button id="btnSelectAll">Select All on Page</button>
-      <label>Page Size
-        <select id="pageSize">
-          <option value="10">10</option>
-          <option value="50" selected>50</option>
-          <option value="100">100</option>
-          <option value="500">500</option>
-        </select>
-      </label>
-    </div>
-    <div class="right">
-      <button id="btnPrev" title="Previous (←)">Prev</button>
-      <span id="pageInfo"></span>
-      <button id="btnNext" title="Next (→)">Next</button>
+      <label>Network: <input id="networkFilter" placeholder="e.g., '1a'" /></label>
+      <label>Device: <input id="deviceFilter" placeholder="e.g., 'AT505'" /></label>
+      <label><input type="checkbox" id="recursiveToggle" /> Recursive</label>
+      <button id="btnGoBack" title="Go up one level">Go Back</button>
     </div>
   </section>
 
-  <section id="grid" class="grid"></section>
+  <section id="browser" class="grid"></section>
 
   <script src="/static/utils.js" defer></script>
-  <script src="/static/raw_review.js" defer></script>
+  <script src="/static/raw_browser.js" defer></script>
 </body>
 </html>

@@ -59,6 +59,15 @@
   });
 
   async function loadImages(){
+    const reviewImagesStr = sessionStorage.getItem('reviewImages');
+    if (reviewImagesStr) {
+        images = JSON.parse(reviewImagesStr);
+        sessionStorage.removeItem('reviewImages');
+        idx = 0;
+        await renderTriplet();
+        return;
+    }
+
     let url = `/api/images?page=1&page_size=2500`;
     if (classFilter.value && classFilter.value !== "All Classes") {
       url += `&class=${encodeURIComponent(classFilter.value)}`;
@@ -159,12 +168,7 @@
     currCtx.imageSmoothingEnabled = false;
     drawImageWithBoxes(currCtx, currName, "curr"); // ensure visible immediately
 
-    // Remove any previous global mouseup handler (prevents accumulation)
-    if (activeMouseUpHandler) {
-      window.removeEventListener("mouseup", activeMouseUpHandler);
-      activeMouseUpHandler = null;
-    }
-
+    if (activeMouseUpHandler) { window.removeEventListener("mouseup", activeMouseUpHandler); activeMouseUpHandler = null; }
     isDragging=false; dragStart=null; lastPos=null;
 
     clone.addEventListener("mousedown",(e)=>{
@@ -185,6 +189,40 @@
       });
     });
 
+    clone.addEventListener("click", async (e) => {
+      if (isDragging || dragStart) return;
+      const rect = clone.getBoundingClientRect();
+      const clickX = e.clientX - rect.left, clickY = e.clientY - rect.top;
+
+      const anns = annsCache[currName];
+      if (!anns || !anns.boxes || !anns.boxes.length) return;
+
+      const { width: dw, height: dh } = currCtx.canvas;
+      const { w, h } = anns;
+      const scale = dh / h;
+
+      let boxIndex = -1;
+      for (let i = anns.boxes.length - 1; i >= 0; i--) {
+        const b = anns.boxes[i];
+        const x = Math.min(b.x1, b.x2) * scale, y = Math.min(b.y1, b.y2) * scale;
+        const bw = Math.abs(b.x2 - b.x1) * scale, bh = Math.abs(b.y2 - b.y1) * scale;
+        if (clickX >= x && clickX <= x + bw && clickY >= y && clickY <= y + bh) {
+          boxIndex = i; break;
+        }
+      }
+
+      if (boxIndex !== -1) {
+        const boxToDelete = anns.boxes[boxIndex];
+        if (confirm(`Delete the box labeled "${boxToDelete.label}"?`)) {
+          anns.boxes.splice(boxIndex, 1);
+          isSaving = true;
+          await saveBox(currName, anns.boxes, true); // Overwrite with new list
+          isSaving = false;
+          await drawImageWithBoxes(currCtx, currName); // Re-render current
+        }
+      }
+    });
+
     async function onMouseUpOnce(e){
       if(!isDragging || isSaving) return;
       isDragging=false; window.removeEventListener("mouseup", onMouseUpOnce); activeMouseUpHandler = null;
@@ -195,30 +233,22 @@
       const { w, h } = annsCache[currName] || { w: dw, h: dh };
       const scale = dh / h;
 
-      const x1 = dragStart.x / scale;
-      const y1 = dragStart.y / scale;
-      const x2 = lastPos.x / scale;
-      const y2 = lastPos.y / scale;
+      const x1 = dragStart.x / scale, y1 = dragStart.y / scale;
+      const x2 = lastPos.x / scale, y2 = lastPos.y / scale;
 
       const box = {
-        x1: Math.round(Math.max(0, Math.min(w, x1))),
-        y1: Math.round(Math.max(0, Math.min(h, y1))),
-        x2: Math.round(Math.max(0, Math.min(w, x2))),
-        y2: Math.round(Math.max(0, Math.min(h, y2))),
+        x1: Math.round(Math.max(0, Math.min(w, x1))), y1: Math.round(Math.max(0, Math.min(h, y1))),
+        x2: Math.round(Math.max(0, Math.min(w, x2))), y2: Math.round(Math.max(0, Math.min(h, y2))),
         label: labelSelect.value || ""
       };
-      const bw = Math.abs(x2 - x1);
-      const bh = Math.abs(y2 - y1);
-
-      if (bw < 5 || bh < 5) {
-        console.log("Box too small, ignoring.");
-        await renderTriplet(); // Re-render to clear drag artifacts
+      if (Math.abs(x2 - x1) < 5 || Math.abs(y2 - y1) < 5) {
+        console.log("Box too small, ignoring."); dragStart=null;
+        await drawImageWithBoxes(currCtx, currName); // Re-render to clear drag artifacts
         return;
       }
-      isSaving = true;
+      isSaving = true; dragStart = null;
       const updatedBoxes = await saveBox(currName, box);
-      const oldAnns = annsCache[currName] || {};
-      annsCache[currName] = { ...oldAnns, boxes: updatedBoxes };
+      annsCache[currName] = { ...(annsCache[currName] || {}), boxes: updatedBoxes };
       localStorage.setItem("rb-last-label", box.label);
       if (idx < images.length-1) idx += 1;
       await renderTriplet();
@@ -243,10 +273,10 @@
   async function skip(){ if(idx<images.length-1){ idx+=1; await renderTriplet(); } }
   async function deleteCurrent(){
     const name = images[idx]; if(!name) return;
-    if(!confirm(`Delete ${name}? This cannot be undone.`)) return;
+    if(!confirm(`Delete ${name} from this project? The image and its annotations will remain in the global catalog.`)) return;
     const res = await fetch("/api/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({files:[name]})});
     const data = await res.json();
-    if ((data.deleted||[]).includes(name)){
+    if (data.deleted_count > 0){
       images.splice(idx,1); if(idx>=images.length) idx=Math.max(0, images.length-1); await renderTriplet();
     } else { alert("Delete failed."); }
   }
@@ -271,7 +301,7 @@
   document.addEventListener("keydown",(e)=>{
     if (e.target.tagName==="INPUT" || e.target.tagName==="TEXTAREA") return;
     if (e.key==="ArrowLeft") goBack();
-    if (e.key===" "){ e.preventDefault(); skip(); }
+    if (e.key==="ArrowRight" || e.key===" "){ e.preventDefault(); skip(); }
     if (e.key==="Delete") deleteCurrent();
     if (e.key === "n" || e.key === "N") tagAsNull();
     if (e.key>="1" && e.key<="9"){

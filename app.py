@@ -11,6 +11,7 @@ APP_TITLE = "Yolo-ReviewBox"
 PROJECTS_ROOT_DIR = os.environ.get("RB_PROJECTS_DIR", os.path.abspath("./projects"))
 RAW_IMAGES_DIR = os.environ.get("RB_RAW_IMAGES_DIR", os.path.abspath("./raw_images"))
 IMAGE_CATALOG_DIR = os.environ.get("RB_IMAGE_CATALOG_DIR", os.path.abspath("./image_catalog"))
+ANNOTATION_CATALOG_DIR = os.environ.get("RB_ANNOTATION_CATALOG_DIR", os.path.abspath("./annotations"))
 PAGE_SIZE_DEFAULT = int(os.environ.get("RB_PAGE_SIZE", "200"))
 ALLOWED_EXTS = {".jpg", ".jpeg", ".png"}
 
@@ -30,7 +31,6 @@ def set_active_project(name: str):
 def get_project_dirs(project_name: str) -> Dict[str, str]:
     base = os.path.join(PROJECTS_ROOT_DIR, project_name)
     return {
-        "annotations": os.path.join(base, "annotations"),
         "exports": os.path.join(base, "exports"),
         "project_images": os.path.join(base, "project_images.txt"),
     }
@@ -40,7 +40,6 @@ def get_active_project_dirs() -> Dict[str, str]:
 
 def ensure_project_dirs_exist(project_name: str):
     dirs = get_project_dirs(project_name)
-    os.makedirs(dirs["annotations"], exist_ok=True)
     os.makedirs(dirs["exports"], exist_ok=True)
     if not os.path.exists(dirs["project_images"]):
         with open(dirs["project_images"], "w") as f:
@@ -50,6 +49,7 @@ def ensure_project_dirs_exist(project_name: str):
 ensure_project_dirs_exist(get_active_project())
 os.makedirs(RAW_IMAGES_DIR, exist_ok=True)
 os.makedirs(IMAGE_CATALOG_DIR, exist_ok=True)
+os.makedirs(ANNOTATION_CATALOG_DIR, exist_ok=True)
 
 
 app = Flask(__name__, static_url_path='/static', static_folder='static')
@@ -114,14 +114,20 @@ def boxes_to_voc_xml(img_file: str, w: int, h: int, boxes: List[Dict[str, Any]])
         ET.SubElement(bb, "ymax").text = str(ymax)
     return ET.tostring(ann, encoding="utf-8")
 
-def voc_xml_path(img_name: str) -> str:
-    dirs = get_active_project_dirs()
-    annotation_dir = dirs["annotations"]
+def catalog_voc_xml_path(img_name: str) -> str:
     base, _ = os.path.splitext(img_name)
-    return os.path.join(annotation_dir, base + ".xml")
+    return os.path.join(ANNOTATION_CATALOG_DIR, base + ".xml")
+
+def raw_voc_xml_path(img_name: str) -> str:
+    base, _ = os.path.splitext(img_name)
+    return os.path.join(RAW_IMAGES_DIR, ".tmp", base + ".xml")
 
 @app.route("/")
 def index():
+    return render_template("catalog.html", app_title=APP_TITLE, page_size=PAGE_SIZE_DEFAULT)
+
+@app.route("/project")
+def project_view():
     return render_template("index.html", app_title=APP_TITLE, page_size=PAGE_SIZE_DEFAULT)
 
 @app.route("/review")
@@ -131,6 +137,10 @@ def review_mode():
 @app.route("/raw_review")
 def raw_review_page():
     return render_template("raw_review.html", app_title=APP_TITLE)
+
+@app.route("/raw_review_classify")
+def raw_review_classify_page():
+    return render_template("raw_review_classify.html", app_title=APP_TITLE)
 
 @app.route("/add_from_catalog")
 def add_from_catalog_page():
@@ -161,6 +171,45 @@ def api_catalog_available():
         "images": available_images[start:end]
     })
 
+@app.route("/api/catalog/images")
+def api_catalog_images():
+    try: page = int(request.args.get("page", "1"))
+    except: page = 1
+    try: page_size = int(request.args.get("page_size", str(PAGE_SIZE_DEFAULT)))
+    except: page_size = PAGE_SIZE_DEFAULT
+
+    all_files = sorted(
+        [f for f in os.listdir(IMAGE_CATALOG_DIR) if os.path.isfile(os.path.join(IMAGE_CATALOG_DIR, f))],
+        key=lambda f: (-os.path.getmtime(os.path.join(IMAGE_CATALOG_DIR, f)), f.lower())
+    )
+
+    total = len(all_files)
+    start = max(0, (page - 1) * page_size)
+    end = min(total, start + page_size)
+
+    return jsonify({
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "images": all_files[start:end]
+    })
+
+@app.route("/api/catalog/project_associations")
+def api_catalog_project_associations():
+    associations = {}
+    projects = [d for d in os.listdir(PROJECTS_ROOT_DIR) if os.path.isdir(os.path.join(PROJECTS_ROOT_DIR, d))]
+    for project in projects:
+        project_images_file = os.path.join(PROJECTS_ROOT_DIR, project, "project_images.txt")
+        if os.path.exists(project_images_file):
+            with open(project_images_file, "r") as f:
+                for line in f:
+                    image = line.strip()
+                    if image:
+                        if image not in associations:
+                            associations[image] = []
+                        associations[image].append(project)
+    return jsonify(associations)
+
 @app.route("/api/catalog/add_to_project", methods=["POST"])
 def api_catalog_add_to_project():
     data = request.get_json(force=True, silent=True) or {}
@@ -190,34 +239,28 @@ def annotate_page():
     return render_template("annotate.html", image_name=img, image_w=w, image_h=h, app_title=APP_TITLE)
 
 def get_unannotated_images() -> List[str]:
-    dirs = get_active_project_dirs()
-    annotation_dir = dirs["annotations"]
     all_images = set(list_images_sorted())
     annotated_images = set()
-    for ann_file in glob.glob(os.path.join(annotation_dir, "*.xml")):
+
+    for ann_file in glob.glob(os.path.join(ANNOTATION_CATALOG_DIR, "*.xml")):
         try:
             tree = ET.parse(ann_file)
-            # If there are any objects, it's annotated.
             if len(tree.findall("object")) > 0:
                 filename = tree.findtext("filename")
                 if filename and is_safe_filename(filename):
                     annotated_images.add(filename)
         except ET.ParseError:
-            # This file is likely empty or malformed, treat as unannotated
             continue
 
-    # Sorting by filename as mtime is less relevant for unannotated
     unannotated = sorted(list(all_images - annotated_images), key=lambda p: p.lower())
     return unannotated
 
 def get_images_by_class(class_name: str) -> List[str]:
-    dirs = get_active_project_dirs()
-    annotation_dir = dirs["annotations"]
     img_files = set()
     if class_name == "__unannotated__":
         return get_unannotated_images()
 
-    for ann_file in glob.glob(os.path.join(annotation_dir, "*.xml")):
+    for ann_file in glob.glob(os.path.join(ANNOTATION_CATALOG_DIR, "*.xml")):
         try:
             tree = ET.parse(ann_file)
             root = tree.getroot()
@@ -234,7 +277,6 @@ def get_images_by_class(class_name: str) -> List[str]:
                         if filename:
                             img_files.add(filename)
                         break
-
         except ET.ParseError:
             continue
 
@@ -287,13 +329,6 @@ def api_delete():
 
         deleted_count = len(all_images) - len(updated_images)
 
-        # Also delete associated annotation files
-        for f in files_to_delete:
-            if not is_safe_filename(f): continue
-            axml = voc_xml_path(f)
-            if os.path.exists(axml):
-                os.remove(axml)
-
     except Exception as e:
         errors.append({"error": str(e)})
 
@@ -303,7 +338,9 @@ def api_delete():
 def api_get_annotation():
     img = request.args.get("image","")
     if not is_safe_filename(img): abort(400, "Invalid image name.")
-    axml = voc_xml_path(img)
+
+    axml = catalog_voc_xml_path(img)
+
     boxes = []
     w, h = -1, -1
     if os.path.exists(axml):
@@ -336,6 +373,50 @@ def api_get_annotation():
     resp.headers["Cache-Control"] = "no-store, max-age=0"
     return resp
 
+@app.route("/api/catalog/annotations_bulk", methods=["POST"])
+def api_catalog_annotations_bulk():
+    data = request.get_json(force=True, silent=True) or {}
+    images = data.get("images", [])
+    out = {}
+
+    for name in images:
+        if not is_safe_filename(name):
+            continue
+
+        axml = catalog_voc_xml_path(name)
+
+        boxes = []
+        w,h = -1,-1
+        if os.path.exists(axml):
+            try:
+                root = ET.parse(axml).getroot()
+                size_el = root.find("size")
+                if size_el:
+                    w = int(size_el.findtext("width", "-1"))
+                    h = int(size_el.findtext("height", "-1"))
+
+                for obj in root.findall("object"):
+                    bnd = obj.find("bndbox")
+                    if bnd is None: continue
+                    boxes.append({
+                        "label": obj.findtext("name", "object"),
+                        "x1": int(bnd.findtext("xmin", "0")),
+                        "y1": int(bnd.findtext("ymin", "0")),
+                        "x2": int(bnd.findtext("xmax", "0")),
+                        "y2": int(bnd.findtext("ymax", "0")),
+                    })
+            except Exception:
+                boxes = []
+
+        if w < 0:
+            w, h = img_size(os.path.join(IMAGE_CATALOG_DIR, name))
+
+        out[name] = {"boxes": boxes, "w": w, "h": h}
+
+    resp = jsonify({"items": out})
+    resp.headers["Cache-control"] = "no-store, max-age=0"
+    return resp
+
 @app.route("/api/annotations_bulk", methods=["POST"])
 def api_annotations_bulk():
     data = request.get_json(force=True, silent=True) or {}
@@ -345,7 +426,9 @@ def api_annotations_bulk():
     for name in images:
         if not is_safe_filename(name):
             continue
-        axml = voc_xml_path(name)
+
+        axml = catalog_voc_xml_path(name)
+
         boxes = []
         w,h = -1,-1
         if os.path.exists(axml):
@@ -386,15 +469,13 @@ def api_post_annotate():
     path = os.path.join(IMAGE_CATALOG_DIR, img)
     if not os.path.exists(path): abort(404, "Image not found.")
     w,h = img_size(path)
-    with open(voc_xml_path(img), "wb") as f:
+    with open(catalog_voc_xml_path(img), "wb") as f:
         f.write(boxes_to_voc_xml(img, w, h, boxes))
     return jsonify({"ok": True})
 
 @app.route("/api/classes", methods=["GET", "POST"])
 def api_classes():
-    dirs = get_active_project_dirs()
-    annotation_dir = dirs["annotations"]
-    classes_file = os.path.join(annotation_dir, "classes.json")
+    classes_file = os.path.join(PROJECTS_ROOT_DIR, "classes.json")
     if request.method == "GET":
         if not os.path.exists(classes_file):
             update_classes_from_annotations()
@@ -418,10 +499,9 @@ def api_classes():
 
 def update_classes_from_annotations():
     """Scan all XML files and update classes.json"""
-    dirs = get_active_project_dirs()
-    annotation_dir = dirs["annotations"]
     classes = set()
-    for ann_file in glob.glob(os.path.join(annotation_dir, "*.xml")):
+
+    for ann_file in glob.glob(os.path.join(ANNOTATION_CATALOG_DIR, "*.xml")):
         try:
             tree = ET.parse(ann_file)
             for obj in tree.findall("object"):
@@ -431,7 +511,7 @@ def update_classes_from_annotations():
         except ET.ParseError:
             continue
 
-    classes_file = os.path.join(annotation_dir, "classes.json")
+    classes_file = os.path.join(PROJECTS_ROOT_DIR, "classes.json")
     all_classes = sorted(list(classes))
 
     with open(classes_file, "w") as f:
@@ -451,7 +531,6 @@ def api_import_voc():
         imported_images = []
         failed_files = []
         dirs = get_active_project_dirs()
-        annotation_dir = dirs["annotations"]
 
         with zipfile.ZipFile(file, 'r') as z:
             for item in z.infolist():
@@ -471,7 +550,7 @@ def api_import_voc():
                             shutil.copyfileobj(zf, f)
                         imported_images.append(base_filename)
                     elif base_filename.lower().endswith('.xml'):
-                        target_path = os.path.join(annotation_dir, base_filename)
+                        target_path = os.path.join(ANNOTATION_CATALOG_DIR, base_filename)
                         with z.open(item) as zf, open(target_path, 'wb') as f:
                             shutil.copyfileobj(zf, f)
                 except Exception as e:
@@ -548,9 +627,7 @@ def api_import_images():
 
 @app.route("/api/export_options", methods=["GET"])
 def api_export_options():
-    dirs = get_active_project_dirs()
-    annotation_dir = dirs["annotations"]
-    classes_file = os.path.join(annotation_dir, "classes.json")
+    classes_file = os.path.join(PROJECTS_ROOT_DIR, "classes.json")
     if os.path.exists(classes_file):
         try:
             with open(classes_file) as f:
@@ -587,7 +664,8 @@ def api_export_voc():
 
     for name in imgs:
         src_img = os.path.join(IMAGE_CATALOG_DIR, name)
-        axml_src = voc_xml_path(name)
+
+        axml_src = catalog_voc_xml_path(name)
 
         if not os.path.exists(axml_src):
             continue
@@ -692,35 +770,43 @@ def api_create_project():
     set_active_project(name)
     return jsonify({"ok": True, "name": name})
 
-def list_raw_images_recursive() -> List[str]:
-    files = []
-    for root, _, filenames in os.walk(RAW_IMAGES_DIR):
-        for filename in filenames:
-            if any(filename.lower().endswith(ext) for ext in ALLOWED_EXTS):
-                relative_path = os.path.relpath(os.path.join(root, filename), RAW_IMAGES_DIR)
-                files.append(relative_path)
-    files.sort()
-    return files
+@app.route("/api/raw_browser")
+def api_raw_browser():
+    # Security: Ensure path is within RAW_IMAGES_DIR
+    path_param = request.args.get("path", "")
+    abs_path = os.path.abspath(os.path.join(RAW_IMAGES_DIR, path_param))
+    if not abs_path.startswith(RAW_IMAGES_DIR):
+        abort(400, "Invalid path.")
 
-@app.route("/api/raw_images")
-def api_raw_images():
-    try: page = int(request.args.get("page", "1"))
-    except: page = 1
-    try: page_size = int(request.args.get("page_size", str(PAGE_SIZE_DEFAULT)))
-    except: page_size = PAGE_SIZE_DEFAULT
+    recursive = request.args.get("recursive", "false").lower() == "true"
+    network_filter = request.args.get("network", "")
+    device_filter = request.args.get("device", "")
 
-    images = list_raw_images_recursive()
+    items = []
+    if recursive:
+        for root, dirs, files in os.walk(abs_path):
+            # Filtering logic for recursive view
+            if network_filter and not any(f.startswith(network_filter) for f in root.split(os.sep)):
+                continue
 
-    total = len(images)
-    start = max(0, (page - 1) * page_size)
-    end = min(total, start + page_size)
+            for name in files:
+                if device_filter and device_filter not in name:
+                    continue
+                if any(name.lower().endswith(ext) for ext in ALLOWED_EXTS):
+                    path = os.path.relpath(os.path.join(root, name), RAW_IMAGES_DIR)
+                    items.append({"name": name, "type": "file", "path": path})
+    else:
+        for item in os.listdir(abs_path):
+            item_abs_path = os.path.join(abs_path, item)
+            if os.path.isdir(item_abs_path):
+                items.append({"name": item, "type": "dir"})
+            elif any(item.lower().endswith(ext) for ext in ALLOWED_EXTS):
+                items.append({"name": item, "type": "file", "path": os.path.relpath(item_abs_path, RAW_IMAGES_DIR)})
 
-    return jsonify({
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "images": images[start:end]
-    })
+    # Sort directories first, then files
+    items.sort(key=lambda x: (x.get("type", "file") != "dir", x.get("name").lower()))
+
+    return jsonify(items)
 
 @app.route("/raw_image/<path:fname>")
 def serve_raw_image(fname):
@@ -734,6 +820,55 @@ def serve_raw_image(fname):
 
     return send_from_directory(RAW_IMAGES_DIR, fname)
 
+@app.route("/api/raw/annotation", methods=["GET", "POST"])
+def api_raw_annotation():
+    if request.method == "GET":
+        img = request.args.get("image","")
+        if ".." in img or os.path.isabs(img): abort(400, "Invalid image name.")
+        axml = raw_voc_xml_path(img)
+        boxes = []
+        w, h = -1, -1
+        if os.path.exists(axml):
+            try:
+                root = ET.parse(axml).getroot()
+                size_el = root.find("size")
+                if size_el:
+                    w = int(size_el.findtext("width", "-1"))
+                    h = int(size_el.findtext("height", "-1"))
+
+                for obj in root.findall("object"):
+                    bnd = obj.find("bndbox")
+                    if bnd is None: continue
+                    boxes.append({
+                        "label": obj.findtext("name","object"),
+                        "x1": int(bnd.findtext("xmin","0")), "y1": int(bnd.findtext("ymin","0")),
+                        "x2": int(bnd.findtext("xmax","0")), "y2": int(bnd.findtext("ymax","0")),
+                    })
+            except Exception as e:
+                return jsonify({"boxes": boxes, "error": str(e), "w": w, "h": h}), 200
+
+        if w < 0:
+            w, h = img_size(os.path.join(RAW_IMAGES_DIR, img))
+
+        resp = jsonify({"boxes": boxes, "w": w, "h": h})
+        resp.headers["Cache-Control"] = "no-store, max-age=0"
+        return resp
+    else: # POST
+        data = request.get_json(force=True, silent=True) or {}
+        img = data.get("image"); boxes = data.get("boxes", [])
+        if not img or ".." in img or os.path.isabs(img): abort(400, "Invalid image.")
+        path = os.path.join(RAW_IMAGES_DIR, img)
+        if not os.path.exists(path): abort(404, "Image not found.")
+
+        xml_path = raw_voc_xml_path(img)
+        xml_dir = os.path.dirname(xml_path)
+        os.makedirs(xml_dir, exist_ok=True)
+
+        w,h = img_size(path)
+        with open(xml_path, "wb") as f:
+            f.write(boxes_to_voc_xml(img, w, h, boxes))
+        return jsonify({"ok": True})
+
 @app.route("/api/raw/accept", methods=["POST"])
 def api_raw_accept():
     data = request.get_json(force=True, silent=True) or {}
@@ -741,41 +876,38 @@ def api_raw_accept():
     label = data.get("label")
     accepted_files = []
     errors = []
-    dirs = get_active_project_dirs()
-
-    if not label:
-        abort(400, "A label must be provided.")
 
     for f in files:
         src_path = os.path.join(RAW_IMAGES_DIR, f)
+        raw_axml_path = raw_voc_xml_path(f)
 
         if not os.path.abspath(src_path).startswith(os.path.abspath(RAW_IMAGES_DIR)):
             errors.append({"file": f, "error": "Invalid path"})
             continue
-
         if not os.path.exists(src_path):
             errors.append({"file": f, "error": "Not found"})
             continue
 
         new_name = f.replace(os.sep, "_")
         dest_path = os.path.join(IMAGE_CATALOG_DIR, new_name)
+        dest_axml_path = catalog_voc_xml_path(new_name)
 
         try:
+            # Move image
             if not os.path.exists(dest_path):
                 shutil.move(src_path, dest_path)
 
-            # Add to project if not already there
-            with open(dirs["project_images"], "r+") as proj_f:
-                existing = {line.strip() for line in proj_f}
-                if new_name not in existing:
-                    proj_f.seek(0, 2)
-                    proj_f.write(new_name + "\n")
-
-            # Create a basic annotation file
-            w, h = img_size(dest_path)
-            box = {"label": label, "x1": 0, "y1": 0, "x2": w, "y2": h}
-            with open(voc_xml_path(new_name), "wb") as axml:
-                axml.write(boxes_to_voc_xml(new_name, w, h, [box]))
+            # Move annotation if it exists, otherwise create a basic one
+            if os.path.exists(raw_axml_path):
+                shutil.move(raw_axml_path, dest_axml_path)
+            else:
+                if not label:
+                    errors.append({"file": f, "error": "No label provided for un-annotated image"})
+                    continue
+                w, h = img_size(dest_path)
+                box = {"label": label, "x1": 0, "y1": 0, "x2": w, "y2": h}
+                with open(dest_axml_path, "wb") as axml:
+                    axml.write(boxes_to_voc_xml(new_name, w, h, [box]))
 
             accepted_files.append({"original": f, "new": new_name})
         except Exception as e:
