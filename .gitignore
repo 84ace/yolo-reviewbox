@@ -6,3 +6,5 @@ exports/
 images/
 raw_images/
 app.log
+image_catalog/
+projects/
