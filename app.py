@@ -31,7 +31,6 @@ def set_active_project(name: str):
 def get_project_dirs(project_name: str) -> Dict[str, str]:
     base = os.path.join(PROJECTS_ROOT_DIR, project_name)
     return {
-        "annotations": os.path.join(base, "annotations"),
         "exports": os.path.join(base, "exports"),
         "project_images": os.path.join(base, "project_images.txt"),
     }
@@ -41,7 +40,6 @@ def get_active_project_dirs() -> Dict[str, str]:
 
 def ensure_project_dirs_exist(project_name: str):
     dirs = get_project_dirs(project_name)
-    os.makedirs(dirs["annotations"], exist_ok=True)
     os.makedirs(dirs["exports"], exist_ok=True)
     if not os.path.exists(dirs["project_images"]):
         with open(dirs["project_images"], "w") as f:
@@ -115,12 +113,6 @@ def boxes_to_voc_xml(img_file: str, w: int, h: int, boxes: List[Dict[str, Any]])
         ET.SubElement(bb, "xmax").text = str(xmax)
         ET.SubElement(bb, "ymax").text = str(ymax)
     return ET.tostring(ann, encoding="utf-8")
-
-def project_voc_xml_path(img_name: str) -> str:
-    dirs = get_active_project_dirs()
-    annotation_dir = dirs["annotations"]
-    base, _ = os.path.splitext(img_name)
-    return os.path.join(annotation_dir, base + ".xml")
 
 def catalog_voc_xml_path(img_name: str) -> str:
     base, _ = os.path.splitext(img_name)
@@ -247,58 +239,46 @@ def annotate_page():
     return render_template("annotate.html", image_name=img, image_w=w, image_h=h, app_title=APP_TITLE)
 
 def get_unannotated_images() -> List[str]:
-    dirs = get_active_project_dirs()
-    project_annotation_dir = dirs["annotations"]
     all_images = set(list_images_sorted())
     annotated_images = set()
 
-    def scan_annotations(annotation_dir):
-        for ann_file in glob.glob(os.path.join(annotation_dir, "*.xml")):
-            try:
-                tree = ET.parse(ann_file)
-                if len(tree.findall("object")) > 0:
-                    filename = tree.findtext("filename")
-                    if filename and is_safe_filename(filename):
-                        annotated_images.add(filename)
-            except ET.ParseError:
-                continue
-
-    scan_annotations(project_annotation_dir)
-    scan_annotations(ANNOTATION_CATALOG_DIR)
+    for ann_file in glob.glob(os.path.join(ANNOTATION_CATALOG_DIR, "*.xml")):
+        try:
+            tree = ET.parse(ann_file)
+            if len(tree.findall("object")) > 0:
+                filename = tree.findtext("filename")
+                if filename and is_safe_filename(filename):
+                    annotated_images.add(filename)
+        except ET.ParseError:
+            continue
 
     unannotated = sorted(list(all_images - annotated_images), key=lambda p: p.lower())
     return unannotated
 
 def get_images_by_class(class_name: str) -> List[str]:
-    dirs = get_active_project_dirs()
-    project_annotation_dir = dirs["annotations"]
     img_files = set()
     if class_name == "__unannotated__":
         return get_unannotated_images()
 
-    def scan_for_class(annotation_dir):
-        for ann_file in glob.glob(os.path.join(annotation_dir, "*.xml")):
-            try:
-                tree = ET.parse(ann_file)
-                root = tree.getroot()
+    for ann_file in glob.glob(os.path.join(ANNOTATION_CATALOG_DIR, "*.xml")):
+        try:
+            tree = ET.parse(ann_file)
+            root = tree.getroot()
 
-                if class_name == "__null__":
-                    if any(o.findtext("name") == "__null__" for o in root.findall("object")):
+            if class_name == "__null__":
+                if any(o.findtext("name") == "__null__" for o in root.findall("object")):
+                    filename = root.findtext("filename")
+                    if filename:
+                        img_files.add(filename)
+            else:
+                for obj in root.findall("object"):
+                    if obj.findtext("name") == class_name:
                         filename = root.findtext("filename")
                         if filename:
                             img_files.add(filename)
-                else:
-                    for obj in root.findall("object"):
-                        if obj.findtext("name") == class_name:
-                            filename = root.findtext("filename")
-                            if filename:
-                                img_files.add(filename)
-                            break
-            except ET.ParseError:
-                continue
-
-    scan_for_class(project_annotation_dir)
-    scan_for_class(ANNOTATION_CATALOG_DIR)
+                        break
+        except ET.ParseError:
+            continue
 
     all_images = list_images_sorted()
     return [img for img in all_images if img in img_files]
@@ -349,13 +329,6 @@ def api_delete():
 
         deleted_count = len(all_images) - len(updated_images)
 
-        # Also delete associated annotation files
-        for f in files_to_delete:
-            if not is_safe_filename(f): continue
-            axml = project_voc_xml_path(f)
-            if os.path.exists(axml):
-                os.remove(axml)
-
     except Exception as e:
         errors.append({"error": str(e)})
 
@@ -366,10 +339,7 @@ def api_get_annotation():
     img = request.args.get("image","")
     if not is_safe_filename(img): abort(400, "Invalid image name.")
 
-    # Project-specific annotation takes precedence
-    axml = project_voc_xml_path(img)
-    if not os.path.exists(axml):
-        axml = catalog_voc_xml_path(img)
+    axml = catalog_voc_xml_path(img)
 
     boxes = []
     w, h = -1, -1
@@ -457,9 +427,7 @@ def api_annotations_bulk():
         if not is_safe_filename(name):
             continue
 
-        axml = project_voc_xml_path(name)
-        if not os.path.exists(axml):
-            axml = catalog_voc_xml_path(name)
+        axml = catalog_voc_xml_path(name)
 
         boxes = []
         w,h = -1,-1
@@ -501,15 +469,13 @@ def api_post_annotate():
     path = os.path.join(IMAGE_CATALOG_DIR, img)
     if not os.path.exists(path): abort(404, "Image not found.")
     w,h = img_size(path)
-    with open(project_voc_xml_path(img), "wb") as f:
+    with open(catalog_voc_xml_path(img), "wb") as f:
         f.write(boxes_to_voc_xml(img, w, h, boxes))
     return jsonify({"ok": True})
 
 @app.route("/api/classes", methods=["GET", "POST"])
 def api_classes():
-    dirs = get_active_project_dirs()
-    annotation_dir = dirs["annotations"]
-    classes_file = os.path.join(annotation_dir, "classes.json")
+    classes_file = os.path.join(PROJECTS_ROOT_DIR, "classes.json")
     if request.method == "GET":
         if not os.path.exists(classes_file):
             update_classes_from_annotations()
@@ -533,25 +499,19 @@ def api_classes():
 
 def update_classes_from_annotations():
     """Scan all XML files and update classes.json"""
-    dirs = get_active_project_dirs()
-    project_annotation_dir = dirs["annotations"]
     classes = set()
 
-    def scan_for_classes(annotation_dir):
-        for ann_file in glob.glob(os.path.join(annotation_dir, "*.xml")):
-            try:
-                tree = ET.parse(ann_file)
-                for obj in tree.findall("object"):
-                    class_name = obj.findtext("name")
-                    if class_name and class_name != "__null__":
-                        classes.add(class_name)
-            except ET.ParseError:
-                continue
+    for ann_file in glob.glob(os.path.join(ANNOTATION_CATALOG_DIR, "*.xml")):
+        try:
+            tree = ET.parse(ann_file)
+            for obj in tree.findall("object"):
+                class_name = obj.findtext("name")
+                if class_name and class_name != "__null__":
+                    classes.add(class_name)
+        except ET.ParseError:
+            continue
 
-    scan_for_classes(project_annotation_dir)
-    scan_for_classes(ANNOTATION_CATALOG_DIR)
-
-    classes_file = os.path.join(project_annotation_dir, "classes.json")
+    classes_file = os.path.join(PROJECTS_ROOT_DIR, "classes.json")
     all_classes = sorted(list(classes))
 
     with open(classes_file, "w") as f:
@@ -571,7 +531,6 @@ def api_import_voc():
         imported_images = []
         failed_files = []
         dirs = get_active_project_dirs()
-        annotation_dir = dirs["annotations"]
 
         with zipfile.ZipFile(file, 'r') as z:
             for item in z.infolist():
@@ -668,9 +627,7 @@ def api_import_images():
 
 @app.route("/api/export_options", methods=["GET"])
 def api_export_options():
-    dirs = get_active_project_dirs()
-    annotation_dir = dirs["annotations"]
-    classes_file = os.path.join(annotation_dir, "classes.json")
+    classes_file = os.path.join(PROJECTS_ROOT_DIR, "classes.json")
     if os.path.exists(classes_file):
         try:
             with open(classes_file) as f:
@@ -708,9 +665,7 @@ def api_export_voc():
     for name in imgs:
         src_img = os.path.join(IMAGE_CATALOG_DIR, name)
 
-        axml_src = project_voc_xml_path(name)
-        if not os.path.exists(axml_src):
-            axml_src = catalog_voc_xml_path(name)
+        axml_src = catalog_voc_xml_path(name)
 
         if not os.path.exists(axml_src):
             continue
