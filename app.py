@@ -202,6 +202,22 @@ def api_catalog_images():
         "images": all_files[start:end]
     })
 
+@app.route("/api/catalog/project_associations")
+def api_catalog_project_associations():
+    associations = {}
+    projects = [d for d in os.listdir(PROJECTS_ROOT_DIR) if os.path.isdir(os.path.join(PROJECTS_ROOT_DIR, d))]
+    for project in projects:
+        project_images_file = os.path.join(PROJECTS_ROOT_DIR, project, "project_images.txt")
+        if os.path.exists(project_images_file):
+            with open(project_images_file, "r") as f:
+                for line in f:
+                    image = line.strip()
+                    if image:
+                        if image not in associations:
+                            associations[image] = []
+                        associations[image].append(project)
+    return jsonify(associations)
+
 @app.route("/api/catalog/add_to_project", methods=["POST"])
 def api_catalog_add_to_project():
     data = request.get_json(force=True, silent=True) or {}
@@ -385,6 +401,50 @@ def api_get_annotation():
 
     resp = jsonify({"boxes": boxes, "w": w, "h": h})
     resp.headers["Cache-Control"] = "no-store, max-age=0"
+    return resp
+
+@app.route("/api/catalog/annotations_bulk", methods=["POST"])
+def api_catalog_annotations_bulk():
+    data = request.get_json(force=True, silent=True) or {}
+    images = data.get("images", [])
+    out = {}
+
+    for name in images:
+        if not is_safe_filename(name):
+            continue
+
+        axml = catalog_voc_xml_path(name)
+
+        boxes = []
+        w,h = -1,-1
+        if os.path.exists(axml):
+            try:
+                root = ET.parse(axml).getroot()
+                size_el = root.find("size")
+                if size_el:
+                    w = int(size_el.findtext("width", "-1"))
+                    h = int(size_el.findtext("height", "-1"))
+
+                for obj in root.findall("object"):
+                    bnd = obj.find("bndbox")
+                    if bnd is None: continue
+                    boxes.append({
+                        "label": obj.findtext("name", "object"),
+                        "x1": int(bnd.findtext("xmin", "0")),
+                        "y1": int(bnd.findtext("ymin", "0")),
+                        "x2": int(bnd.findtext("xmax", "0")),
+                        "y2": int(bnd.findtext("ymax", "0")),
+                    })
+            except Exception:
+                boxes = []
+
+        if w < 0:
+            w, h = img_size(os.path.join(IMAGE_CATALOG_DIR, name))
+
+        out[name] = {"boxes": boxes, "w": w, "h": h}
+
+    resp = jsonify({"items": out})
+    resp.headers["Cache-control"] = "no-store, max-age=0"
     return resp
 
 @app.route("/api/annotations_bulk", methods=["POST"])

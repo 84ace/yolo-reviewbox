@@ -10,6 +10,8 @@
   let state = {
     path: "",
     selected: new Set(),
+    lastClickedIndex: null,
+    visibleFiles: [],
   };
 
   async function fetchItems() {
@@ -32,7 +34,8 @@
 
   function render(items) {
     browser.innerHTML = "";
-    items.forEach(item => {
+    state.visibleFiles = [];
+    items.forEach((item, idx) => {
       const tile = document.createElement("div");
       tile.className = "tile";
       if (item.type === "dir") {
@@ -43,6 +46,7 @@
         });
       } else {
         const path = item.path || item;
+        state.visibleFiles.push(path);
         tile.dataset.path = path;
         if (state.selected.has(path)) tile.classList.add("selected");
 
@@ -52,13 +56,28 @@
         img.loading = "lazy";
         tile.appendChild(img);
 
-        tile.addEventListener("click", () => {
-          if (state.selected.has(path)) {
-            state.selected.delete(path);
+        tile.addEventListener("click", (e) => {
+          if (e.shiftKey && state.lastClickedIndex !== null) {
+            const start = Math.min(state.lastClickedIndex, idx);
+            const end = Math.max(state.lastClickedIndex, idx);
+            for (let i = start; i <= end; i++) {
+              const file = state.visibleFiles[i];
+              if (file) {
+                state.selected.add(file);
+                const tileNode = browser.querySelector(`[data-path="${file}"]`);
+                if (tileNode) tileNode.classList.add("selected");
+              }
+            }
           } else {
-            state.selected.add(path);
+            if (state.selected.has(path)) {
+              state.selected.delete(path);
+              tile.classList.remove("selected");
+            } else {
+              state.selected.add(path);
+              tile.classList.add("selected");
+            }
           }
-          tile.classList.toggle("selected");
+          state.lastClickedIndex = idx;
         });
       }
       browser.appendChild(tile);
@@ -93,6 +112,25 @@
     if (files.length === 0) return;
     sessionStorage.setItem("classify_files", JSON.stringify(files));
     window.location.href = "/raw_review_classify";
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "a" || e.key === "A") {
+      e.preventDefault();
+      const allSelected = state.visibleFiles.every(f => state.selected.has(f));
+      if (allSelected) {
+        state.selected.clear();
+        browser.querySelectorAll(".tile.selected").forEach(t => t.classList.remove("selected"));
+      } else {
+        state.visibleFiles.forEach(f => state.selected.add(f));
+        browser.querySelectorAll(".tile").forEach(t => {
+          if (t.dataset.path) t.classList.add("selected");
+        });
+      }
+    } else if (e.key === "d" || e.key === "D") {
+      e.preventDefault();
+      btnDelete.click();
+    }
   });
 
   fetchItems();

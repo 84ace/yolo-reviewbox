@@ -7,10 +7,16 @@
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <h2 id="page-title">Image Catalog</h2>
                 <div>
+                    <label for="thumb-size-select" class="form-label">Thumbnail Size:</label>
+                    <select id="thumb-size-select" class="form-select d-inline-block w-auto">
+                        <option value="128">Small</option>
+                        <option value="192" selected>Medium</option>
+                        <option value="256">Large</option>
+                    </select>
                     <a href="/project" class="btn btn-primary">Go to Project</a>
                 </div>
             </div>
-            <div id="image-grid" class="row"></div>
+            <div id="image-grid" class="grid"></div>
             <div id="pagination-controls" class="d-flex justify-content-center mt-3"></div>
         </div>
     </div>
@@ -21,6 +27,89 @@
 <script>
 let currentPage = 1;
 const pageSize = {{ page_size }};
+let thumbSize = 192;
+let pageBoxes = {};
+let projectAssociations = {};
+
+async function fetchProjectAssociations() {
+    const response = await fetch('/api/catalog/project_associations');
+    if (!response.ok) {
+        console.error('Failed to fetch project associations');
+        return {};
+    }
+    return await response.json();
+}
+
+function drawOverlayForTile(tile, name){
+    const img = tile.querySelector("img.thumb");
+    if (!img) return;
+    let overlay = tile.querySelector("canvas.overlay");
+    if (!overlay){
+      overlay = document.createElement("canvas");
+      overlay.className = "overlay";
+      tile.appendChild(overlay);
+    }
+    const w = img.clientWidth || img.width;
+    const h = img.clientHeight || img.height;
+    overlay.width = w; overlay.height = h;
+    const ctx = overlay.getContext("2d");
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0,0,w,h);
+    const boxData = (pageBoxes && pageBoxes[name]) ? pageBoxes[name] : null;
+    if (!boxData) return;
+    const boxes = boxData.boxes || [];
+    const origW = boxData.w || 224;
+    const origH = boxData.h || 224;
+    if (!boxes.length) return;
+    const f = (w / origW);
+    ctx.save();
+    ctx.lineWidth = Math.max(1, Math.round(1*f));
+    ctx.font = `${Math.max(10, Math.round(10*f))}px system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial`;
+    const isNull = boxes.some(b => b.label === "__null__");
+    if (isNull) {
+      ctx.strokeStyle = "rgba(255, 50, 50, 0.8)";
+      ctx.lineWidth = 2 * f;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(w, h);
+      ctx.stroke();
+      ctx.moveTo(w, 0);
+      ctx.lineTo(0, h);
+      ctx.stroke();
+    }
+    boxes.forEach(b => {
+      if (b.label === "__null__") return;
+      ctx.strokeStyle = colorFromString(b.label);
+      const x = Math.min(b.x1,b.x2)*f, y = Math.min(b.y1,b.y2)*f;
+      const bw = Math.abs(b.x2-b.x1)*f, bh = Math.abs(b.y2-b.y1)*f;
+      ctx.strokeRect(x,y,bw,bh);
+      if (b.label){
+        const pad = 4*f;
+        const tw = ctx.measureText(b.label).width + pad*2;
+        const bhh = (14*f);
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        ctx.fillRect(x, Math.max(0, y-bhh), tw, bhh);
+        ctx.fillStyle = "#fff";
+        ctx.fillText(b.label, x+pad, Math.max(10*f, y-4*f));
+      }
+    });
+    ctx.restore();
+}
+
+async function fetchBoxesForPage(imgs){
+    try{
+      const res = await fetch("/api/catalog/annotations_bulk", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ images: imgs })
+      });
+      if (!res.ok) throw new Error(`bulk ${res.status}`);
+      const data = await res.json();
+      return data.items || {};
+    } catch(e){
+      return {};
+    }
+}
+
 
 async function fetchImages(page = 1) {
     const response = await fetch(`/api/catalog/images?page=${page}&page_size=${pageSize}`);
@@ -35,23 +124,29 @@ function renderImages(images) {
     const grid = document.getElementById('image-grid');
     grid.innerHTML = '';
     images.forEach(image => {
-        const col = document.createElement('div');
-        col.className = 'col-md-2 col-sm-4 col-6 mb-3';
-        const card = document.createElement('div');
-        card.className = 'card h-100';
+        const tile = document.createElement('div');
+        tile.className = 'tile';
 
-        const imgLink = document.createElement('a');
-        imgLink.href = `/annotate?image=${encodeURIComponent(image)}`;
+        const link = document.createElement('a');
+        link.href = `/annotate?image=${encodeURIComponent(image)}`;
 
         const img = document.createElement('img');
         img.src = `/image/${encodeURIComponent(image)}`;
-        img.className = 'card-img-top';
+        img.className = 'thumb';
         img.alt = image;
 
-        imgLink.appendChild(img);
-        card.appendChild(imgLink);
-        col.appendChild(card);
-        grid.appendChild(col);
+        link.appendChild(img);
+        tile.appendChild(link);
+
+        const projects = projectAssociations[image];
+        if (projects && projects.length > 0) {
+            const projectList = document.createElement('div');
+            projectList.className = 'project-list';
+            projectList.textContent = `In projects: ${projects.join(', ')}`;
+            tile.appendChild(projectList);
+        }
+
+        grid.appendChild(tile);
     });
 }
 
@@ -87,12 +182,29 @@ function renderPagination(total, page, page_size) {
 async function loadPage(page) {
     const data = await fetchImages(page);
     if (data) {
+        projectAssociations = await fetchProjectAssociations();
         renderImages(data.images);
         renderPagination(data.total, data.page, data.page_size);
+        pageBoxes = await fetchBoxesForPage(data.images);
+        const grid = document.getElementById('image-grid');
+        Array.from(grid.children).forEach(tile => {
+            const name = tile.querySelector('img')?.alt;
+            if (name) {
+                drawOverlayForTile(tile, name);
+            }
+        });
     }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    const thumbSizeSelect = document.getElementById('thumb-size-select');
+    const grid = document.getElementById('image-grid');
+    thumbSizeSelect.addEventListener('change', (e) => {
+        thumbSize = parseInt(e.target.value, 10);
+        grid.style.gridTemplateColumns = `repeat(auto-fill, minmax(${thumbSize}px, 1fr))`;
+    });
+    thumbSize = parseInt(thumbSizeSelect.value, 10);
+    grid.style.gridTemplateColumns = `repeat(auto-fill, minmax(${thumbSize}px, 1fr))`;
     loadPage(currentPage);
 });
 </script>
