@@ -208,8 +208,10 @@
     const res = await fetch("/api/delete", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ files })});
     const data = await res.json();
-    const del = data.deleted || [];
-    del.forEach(n => state.selected.delete(n));
+    if (data.errors && data.errors.length > 0) {
+      alert(`Some files could not be deleted:\n${JSON.stringify(data.errors)}`);
+    }
+    state.selected.clear();
     await fetchImages();
   }
 
@@ -350,6 +352,9 @@
   btnDelete.addEventListener("click", deleteSelected);
   btnExport.addEventListener("click", exportVOC);
   btnImport.addEventListener("click", () => importFile.click());
+  document.getElementById("btnAddFromCatalog").addEventListener("click", () => {
+    window.location.href = "/add_from_catalog";
+  });
   importFile.addEventListener("change", importVOC);
   addRemapRow.addEventListener("click", addRemapRowLogic);
   runExport.addEventListener("click", runExportLogic);

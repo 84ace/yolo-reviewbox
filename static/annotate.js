@@ -79,6 +79,7 @@
   });
 
   document.addEventListener("keydown", (e) => {
+    if (document.activeElement.tagName === "INPUT") return;
     if (e.key === "Backspace") {
       if (activeIdx >= 0) { boxes.splice(activeIdx, 1); activeIdx = Math.max(-1, activeIdx - 1); drawAll(); refreshList(); e.preventDefault(); }
     }

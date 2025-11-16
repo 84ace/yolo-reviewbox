@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ app_title }} — Raw Image Browser</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body class="review">
+  <header class="topbar">
+    <a href="/" class="title">{{ app_title }}</a>
+    <div class="actions">
+      <strong style="margin-right: 1em">Raw Image Browser</strong>
+      <button id="btnClassify" title="Classify selected images">Classify Selected</button>
+      <button id="btnDelete" title="Delete selected images permanently">Delete Selected</button>
+    </div>
+  </header>
+
+  <section class="controls">
+    <div class="left">
+      <label>Network: <input id="networkFilter" placeholder="e.g., '1a'" /></label>
+      <label>Device: <input id="deviceFilter" placeholder="e.g., 'AT505'" /></label>
+      <label><input type="checkbox" id="recursiveToggle" /> Recursive</label>
+      <button id="btnGoBack" title="Go up one level">Go Back</button>
+    </div>
+  </section>
+
+  <section id="browser" class="grid"></section>
+
+  <script src="/static/utils.js" defer></script>
+  <script src="/static/raw_browser.js" defer></script>
+</body>
+</html>

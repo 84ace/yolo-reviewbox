@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ app_title }} — Add From Catalog</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body class="review">
+  <header class="topbar">
+    <a href="/" class="title">{{ app_title }}</a>
+    <div class="actions">
+      <strong style="margin-right: 1em">Add Images to Project</strong>
+      <button id="btnAdd" title="Add selected images to the project">Add Selected</button>
+    </div>
+  </header>
+
+  <section class="controls">
+    <div class="left">
+      <label>Filter: <input id="filterText" placeholder="filename contains..." /></label>
+      <label>Page Size
+        <select id="pageSize">
+          <option value="50" selected>50</option>
+          <option value="100">100</option>
+          <option value="200">200</option>
+          <option value="500">500</option>
+        </select>
+      </label>
+    </div>
+    <div class="right">
+      <button id="btnPrev" title="Previous (←)">Prev</button>
+      <span id="pageInfo"></span>
+      <button id="btnNext" title="Next (→)">Next</button>
+    </div>
+  </section>
+
+  <section id="grid" class="grid"></section>
+
+  <script src="/static/utils.js" defer></script>
+  <script src="/static/add_from_catalog.js" defer></script>
+</body>
+</html>
