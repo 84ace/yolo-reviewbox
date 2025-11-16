@@ -13,10 +13,11 @@
                         <option value="192" selected>Medium</option>
                         <option value="256">Large</option>
                     </select>
+                    <button id="review-selected-btn" class="btn btn-secondary" disabled>Review Selected</button>
                     <a href="/project" class="btn btn-primary">Go to Project</a>
                 </div>
             </div>
-            <div id="image-grid" class="grid"></div>
+            <div id="image-grid" class="grid noselect"></div>
             <div id="pagination-controls" class="d-flex justify-content-center mt-3"></div>
         </div>
     </div>
@@ -199,12 +200,38 @@ async function loadPage(page) {
 document.addEventListener('DOMContentLoaded', () => {
     const thumbSizeSelect = document.getElementById('thumb-size-select');
     const grid = document.getElementById('image-grid');
+    const reviewSelectedBtn = document.getElementById('review-selected-btn');
+
     thumbSizeSelect.addEventListener('change', (e) => {
         thumbSize = parseInt(e.target.value, 10);
         grid.style.gridTemplateColumns = `repeat(auto-fill, minmax(${thumbSize}px, 1fr))`;
     });
     thumbSize = parseInt(thumbSizeSelect.value, 10);
     grid.style.gridTemplateColumns = `repeat(auto-fill, minmax(${thumbSize}px, 1fr))`;
+
+    grid.addEventListener('click', (e) => {
+        const tile = e.target.closest('.tile');
+        if (tile && e.target.tagName !== 'A') {
+            tile.classList.toggle('selected');
+            updateReviewButton();
+        }
+    });
+
+    reviewSelectedBtn.addEventListener('click', () => {
+        const selectedTiles = grid.querySelectorAll('.tile.selected');
+        const selectedImages = Array.from(selectedTiles).map(tile => tile.querySelector('img').alt);
+        if (selectedImages.length > 0) {
+            sessionStorage.setItem('reviewImages', JSON.stringify(selectedImages));
+            window.location.href = '/review';
+        }
+    });
+
+    function updateReviewButton() {
+        const selectedCount = grid.querySelectorAll('.tile.selected').length;
+        reviewSelectedBtn.disabled = selectedCount === 0;
+        reviewSelectedBtn.textContent = selectedCount > 0 ? `Review Selected (${selectedCount})` : 'Review Selected';
+    }
+
     loadPage(currentPage);
 });
 </script>
