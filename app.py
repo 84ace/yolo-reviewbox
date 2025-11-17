@@ -16,6 +16,32 @@ PAGE_SIZE_DEFAULT = int(os.environ.get("RB_PAGE_SIZE", "200"))
 ALLOWED_EXTS = {".jpg", ".jpeg", ".png"}
 
 ACTIVE_PROJECT_FILE = os.path.join(PROJECTS_ROOT_DIR, "active_project.txt")
+IMAGE_CATEGORIES_FILE = os.path.join(PROJECTS_ROOT_DIR, "image_categories.json")
+
+def load_image_categories():
+    if os.path.exists(IMAGE_CATEGORIES_FILE):
+        with open(IMAGE_CATEGORIES_FILE, "r") as f:
+            return json.load(f)
+    return {}
+
+def save_image_categories(categories):
+    with open(IMAGE_CATEGORIES_FILE, "w") as f:
+        json.dump(categories, f, indent=2)
+
+def scan_and_categorize_images():
+    categories = load_image_categories()
+    image_files = [f for f in os.listdir(IMAGE_CATALOG_DIR) if os.path.isfile(os.path.join(IMAGE_CATALOG_DIR, f))]
+    for filename in image_files:
+        if filename not in categories:
+            try:
+                size = os.path.getsize(os.path.join(IMAGE_CATALOG_DIR, filename))
+                if size > 20000:
+                    categories[filename] = "TrailCam"
+                else:
+                    categories[filename] = "TrapNode"
+            except OSError:
+                continue
+    save_image_categories(categories)
 
 def get_active_project() -> str:
     if os.path.exists(ACTIVE_PROJECT_FILE):
@@ -52,6 +78,7 @@ os.makedirs(RAW_IMAGES_DIR, exist_ok=True)
 os.makedirs(IMAGE_CATALOG_DIR, exist_ok=True)
 os.makedirs(ANNOTATION_CATALOG_DIR, exist_ok=True)
 
+scan_and_categorize_images()
 
 app = Flask(__name__, static_url_path='/static', static_folder='static')
 # Respect X-Forwarded-Proto/Host when behind a reverse proxy
@@ -182,11 +209,16 @@ def api_catalog_images():
     except: page = 1
     try: page_size = int(request.args.get("page_size", str(PAGE_SIZE_DEFAULT)))
     except: page_size = PAGE_SIZE_DEFAULT
+    category = request.args.get("category")
 
     all_files = sorted(
         [f for f in os.listdir(IMAGE_CATALOG_DIR) if os.path.isfile(os.path.join(IMAGE_CATALOG_DIR, f))],
         key=lambda f: (-os.path.getmtime(os.path.join(IMAGE_CATALOG_DIR, f)), f.lower())
     )
+
+    if category:
+        categories = load_image_categories()
+        all_files = [f for f in all_files if categories.get(f) == category]
 
     total = len(all_files)
     start = max(0, (page - 1) * page_size)
@@ -243,6 +275,22 @@ def api_catalog_delete():
             errors.append({"file": filename, "error": str(e)})
 
     return jsonify({"deleted_count": deleted_count, "errors": errors})
+
+@app.route("/api/catalog/move_category", methods=["POST"])
+def api_catalog_move_category():
+    data = request.get_json(force=True, silent=True) or {}
+    files_to_move = data.get("files", [])
+    new_category = data.get("category")
+    if new_category not in ["TrapNode", "CageNode"]:
+        return jsonify({"error": "Invalid category"}), 400
+
+    categories = load_image_categories()
+    for filename in files_to_move:
+        if filename in categories:
+            categories[filename] = new_category
+    save_image_categories(categories)
+
+    return jsonify({"ok": True})
 
 @app.route("/api/catalog/add_to_project", methods=["POST"])
 def api_catalog_add_to_project():
@@ -607,11 +655,13 @@ def api_import_voc():
                     f.write(img + "\n")
 
         update_classes_from_annotations()
+        scan_and_categorize_images()
 
         message = f"Imported {len(imported_images)} images."
         if failed_files:
             message += f" Failed to import {len(failed_files)} files."
 
+        scan_and_categorize_images()
         return jsonify({"ok": True, "message": message, "failed_files": failed_files})
     except zipfile.BadZipFile:
         return jsonify({"error": "Invalid or corrupted zip file."}), 400

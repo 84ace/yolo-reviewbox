@@ -18,6 +18,18 @@
                     <a href="/project" class="btn btn-primary">Go to Project</a>
                 </div>
             </div>
+            <div id="category-controls" class="d-flex justify-content-between align-items-center mb-3">
+                <div class="btn-group" role="group" aria-label="Category filter">
+                    <button type="button" class="btn btn-outline-primary category-btn active" data-category="">All</button>
+                    <button type="button" class="btn btn-outline-primary category-btn" data-category="TrapNode">TrapNode</button>
+                    <button type="button" class="btn btn-outline-primary category-btn" data-category="TrailCam">TrailCam</button>
+                    <button type="button" class="btn btn-outline-primary category-btn" data-category="CageNode">CageNode</button>
+                </div>
+                <div class="btn-group" role="group" aria-label="Move selected">
+                    <button id="move-to-trapnode-btn" class="btn btn-outline-secondary" disabled>Move to TrapNode</button>
+                    <button id="move-to-cagenode-btn" class="btn btn-outline-secondary" disabled>Move to CageNode</button>
+                </div>
+            </div>
             <div id="image-grid" class="grid noselect"></div>
             <div id="pagination-controls" class="d-flex justify-content-center mt-3"></div>
         </div>
@@ -32,6 +44,7 @@ const pageSize = {{ page_size }};
 let thumbSize = 192;
 let pageBoxes = {};
 let projectAssociations = {};
+let currentCategory = "";
 
 async function fetchProjectAssociations() {
     const response = await fetch('/api/catalog/project_associations');
@@ -114,7 +127,11 @@ async function fetchBoxesForPage(imgs){
 
 
 async function fetchImages(page = 1) {
-    const response = await fetch(`/api/catalog/images?page=${page}&page_size=${pageSize}`);
+    let url = `/api/catalog/images?page=${page}&page_size=${pageSize}`;
+    if (currentCategory) {
+        url += `&category=${encodeURIComponent(currentCategory)}`;
+    }
+    const response = await fetch(url);
     if (!response.ok) {
         console.error('Failed to fetch images');
         return null;
@@ -253,12 +270,46 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    document.querySelectorAll('.category-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelector('.category-btn.active').classList.remove('active');
+            btn.classList.add('active');
+            currentCategory = btn.dataset.category;
+            currentPage = 1;
+            loadPage(currentPage);
+        });
+    });
+
+    async function moveSelected(newCategory) {
+        const selectedTiles = grid.querySelectorAll('.tile.selected');
+        const selectedImages = Array.from(selectedTiles).map(tile => tile.querySelector('img').alt);
+        if (selectedImages.length === 0) return;
+
+        const response = await fetch('/api/catalog/move_category', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ files: selectedImages, category: newCategory })
+        });
+
+        if (response.ok) {
+            loadPage(currentPage);
+        } else {
+            alert(`Failed to move images to ${newCategory}.`);
+        }
+    }
+
+    document.getElementById('move-to-trapnode-btn').addEventListener('click', () => moveSelected('TrapNode'));
+    document.getElementById('move-to-cagenode-btn').addEventListener('click', () => moveSelected('CageNode'));
+
     function updateButtons() {
         const selectedCount = grid.querySelectorAll('.tile.selected').length;
-        reviewSelectedBtn.disabled = selectedCount === 0;
-        deleteSelectedBtn.disabled = selectedCount === 0;
-        reviewSelectedBtn.textContent = selectedCount > 0 ? `Review Selected (${selectedCount})` : 'Review Selected';
-        deleteSelectedBtn.textContent = selectedCount > 0 ? `Delete Selected (${selectedCount})` : 'Delete Selected';
+        const enabled = selectedCount > 0;
+        reviewSelectedBtn.disabled = !enabled;
+        deleteSelectedBtn.disabled = !enabled;
+        document.getElementById('move-to-trapnode-btn').disabled = !enabled;
+        document.getElementById('move-to-cagenode-btn').disabled = !enabled;
+        reviewSelectedBtn.textContent = enabled ? `Review Selected (${selectedCount})` : 'Review Selected';
+        deleteSelectedBtn.textContent = enabled ? `Delete Selected (${selectedCount})` : 'Delete Selected';
     }
 
     loadPage(currentPage);
