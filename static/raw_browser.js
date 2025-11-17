@@ -12,11 +12,15 @@
     selected: new Set(),
     lastClickedIndex: null,
     visibleFiles: [],
+    page: 1,
+    pageSize: 200,
   };
 
   async function fetchItems() {
     const url = new URL("/api/raw_browser", window.location.origin);
     url.searchParams.append("path", state.path);
+    url.searchParams.append("page", state.page);
+    url.searchParams.append("page_size", state.pageSize);
     if (recursiveToggle.checked) {
       url.searchParams.append("recursive", "true");
     }
@@ -28,9 +32,39 @@
     }
 
     const res = await fetch(url);
-    const items = await res.json();
-    render(items);
+    const data = await res.json();
+    render(data.items);
+    renderPagination(data.total, data.page, data.page_size);
   }
+
+  function renderPagination(total, page, page_size) {
+    const paginationControls = document.getElementById('pagination-controls');
+    paginationControls.innerHTML = '';
+    const totalPages = Math.ceil(total / page_size);
+    if (totalPages <= 1) return;
+
+    const nav = document.createElement('nav');
+    const ul = document.createElement('ul');
+    ul.className = 'pagination';
+
+    for (let i = 1; i <= totalPages; i++) {
+        const li = document.createElement('li');
+        li.className = `page-item ${i === page ? 'active' : ''}`;
+        const a = document.createElement('a');
+        a.className = 'page-link';
+        a.href = '#';
+        a.innerText = i;
+        a.addEventListener('click', (e) => {
+            e.preventDefault();
+            state.page = i;
+            fetchItems();
+        });
+        li.appendChild(a);
+        ul.appendChild(li);
+    }
+    nav.appendChild(ul);
+    paginationControls.appendChild(nav);
+}
 
   function render(items) {
     browser.innerHTML = "";

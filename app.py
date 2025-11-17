@@ -820,6 +820,15 @@ def api_create_project():
 
 @app.route("/api/raw_browser")
 def api_raw_browser():
+    try:
+        page = int(request.args.get("page", "1"))
+    except ValueError:
+        page = 1
+    try:
+        page_size = int(request.args.get("page_size", str(PAGE_SIZE_DEFAULT)))
+    except ValueError:
+        page_size = PAGE_SIZE_DEFAULT
+
     # Security: Ensure path is within RAW_IMAGES_DIR
     path_param = request.args.get("path", "")
     abs_path = os.path.abspath(os.path.join(RAW_IMAGES_DIR, path_param))
@@ -854,7 +863,16 @@ def api_raw_browser():
     # Sort directories first, then files
     items.sort(key=lambda x: (x.get("type", "file") != "dir", x.get("name").lower()))
 
-    return jsonify(items)
+    total = len(items)
+    start = max(0, (page - 1) * page_size)
+    end = min(total, start + page_size)
+
+    return jsonify({
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "items": items[start:end]
+    })
 
 @app.route("/raw_image/<path:fname>")
 def serve_raw_image(fname):
