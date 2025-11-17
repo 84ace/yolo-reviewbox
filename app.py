@@ -298,6 +298,36 @@ def api_catalog_move_category():
 
     return jsonify({"ok": True})
 
+@app.route("/api/catalog/change_class", methods=["POST"])
+def api_catalog_change_class():
+    data = request.get_json(force=True, silent=True) or {}
+    files_to_change = data.get("files", [])
+    new_class = data.get("new_class")
+    errors = []
+
+    if not new_class:
+        return jsonify({"error": "No class provided"}), 400
+
+    for filename in files_to_change:
+        if not is_safe_filename(filename):
+            errors.append({"file": filename, "error": "Invalid filename"})
+            continue
+
+        annotation_path = catalog_voc_xml_path(filename)
+        if os.path.exists(annotation_path):
+            try:
+                tree = ET.parse(annotation_path)
+                root = tree.getroot()
+                for obj in root.findall("object"):
+                    obj.find("name").text = new_class
+                tree.write(annotation_path)
+            except Exception as e:
+                errors.append({"file": filename, "error": str(e)})
+        else:
+            errors.append({"file": filename, "error": "No annotation file found"})
+
+    return jsonify({"ok": True, "errors": errors})
+
 @app.route("/api/catalog/add_to_project", methods=["POST"])
 def api_catalog_add_to_project():
     data = request.get_json(force=True, silent=True) or {}

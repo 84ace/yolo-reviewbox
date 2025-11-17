@@ -29,6 +29,12 @@
                     <button id="move-to-trapnode-btn" class="btn btn-outline-secondary" disabled>Move to TrapNode</button>
                     <button id="move-to-cagenode-btn" class="btn btn-outline-secondary" disabled>Move to CageNode</button>
                 </div>
+                <div class="input-group" style="max-width: 300px;">
+                    <select id="class-select" class="form-select">
+                        <option selected>Choose class...</option>
+                    </select>
+                    <button id="change-class-btn" class="btn btn-outline-secondary" type="button" disabled>Change Class</button>
+                </div>
             </div>
             <div id="image-grid" class="grid noselect"></div>
             <div id="pagination-controls" class="d-flex justify-content-center mt-3"></div>
@@ -45,6 +51,27 @@ let thumbSize = 192;
 let pageBoxes = {};
 let projectAssociations = {};
 let currentCategory = "";
+
+async function fetchClasses() {
+    const response = await fetch('/api/classes');
+    if (!response.ok) {
+        console.error('Failed to fetch classes');
+        return [];
+    }
+    const data = await response.json();
+    return data.classes || [];
+}
+
+async function populateClassFilter() {
+    const classes = await fetchClasses();
+    const select = document.getElementById('class-select');
+    classes.forEach(cls => {
+        const option = document.createElement('option');
+        option.value = cls;
+        option.textContent = cls;
+        select.appendChild(option);
+    });
+}
 
 async function fetchProjectAssociations() {
     const response = await fetch('/api/catalog/project_associations');
@@ -221,7 +248,34 @@ document.addEventListener('DOMContentLoaded', () => {
     const grid = document.getElementById('image-grid');
     const reviewSelectedBtn = document.getElementById('review-selected-btn');
     const deleteSelectedBtn = document.getElementById('delete-selected-btn');
+    const changeClassBtn = document.getElementById('change-class-btn');
+    const classSelect = document.getElementById('class-select');
     let lastClickedIndex = null;
+
+    populateClassFilter();
+
+    changeClassBtn.addEventListener('click', async () => {
+        const selectedTiles = grid.querySelectorAll('.tile.selected');
+        const selectedImages = Array.from(selectedTiles).map(tile => tile.querySelector('img').alt);
+        const newClass = classSelect.value;
+
+        if (selectedImages.length === 0 || !newClass || newClass === 'Choose class...') {
+            alert('Please select images and a class.');
+            return;
+        }
+
+        const response = await fetch('/api/catalog/change_class', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ files: selectedImages, new_class: newClass })
+        });
+
+        if (response.ok) {
+            loadPage(currentPage);
+        } else {
+            alert('Failed to change class.');
+        }
+    });
 
     thumbSizeSelect.addEventListener('change', (e) => {
         thumbSize = parseInt(e.target.value, 10);
@@ -322,6 +376,7 @@ document.addEventListener('DOMContentLoaded', () => {
         deleteSelectedBtn.disabled = !enabled;
         document.getElementById('move-to-trapnode-btn').disabled = !enabled;
         document.getElementById('move-to-cagenode-btn').disabled = !enabled;
+        changeClassBtn.disabled = !enabled;
         reviewSelectedBtn.textContent = enabled ? `Review Selected (${selectedCount})` : 'Review Selected';
         deleteSelectedBtn.textContent = enabled ? `Delete Selected (${selectedCount})` : 'Delete Selected';
     }
