@@ -355,6 +355,16 @@
   document.getElementById("btnAddFromCatalog").addEventListener("click", () => {
     window.location.href = "/add_from_catalog";
   });
+  document.getElementById("btnReviewMode").addEventListener("click", (e) => {
+    e.preventDefault();
+    const selectedFiles = Array.from(state.selected);
+    if (selectedFiles.length > 0) {
+      sessionStorage.setItem("reviewImages", JSON.stringify(selectedFiles));
+    } else {
+      sessionStorage.removeItem("reviewImages");
+    }
+    window.location.href = e.target.href;
+  });
   importFile.addEventListener("change", importVOC);
   addRemapRow.addEventListener("click", addRemapRowLogic);
   runExport.addEventListener("click", runExportLogic);
