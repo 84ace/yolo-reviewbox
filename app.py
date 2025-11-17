@@ -189,8 +189,14 @@ def api_catalog_available():
         with open(dirs["project_images"], "r") as f:
             project_images = {line.strip() for line in f}
 
+    category = request.args.get("category")
+
     catalog_images = {f for f in os.listdir(IMAGE_CATALOG_DIR) if os.path.isfile(os.path.join(IMAGE_CATALOG_DIR, f))}
     available_images = sorted(list(catalog_images - project_images))
+
+    if category:
+        categories = load_image_categories()
+        available_images = [f for f in available_images if categories.get(f) == category]
 
     total = len(available_images)
     start = max(0, (page - 1) * page_size)

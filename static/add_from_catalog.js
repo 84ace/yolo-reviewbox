@@ -4,6 +4,7 @@
   const filterText = document.getElementById("filterText");
   const pageInfo = document.getElementById("pageInfo");
   const pageSizeSel = document.getElementById("pageSize");
+  const categoryFilter = document.getElementById("categoryFilter");
   const btnPrev = document.getElementById("btnPrev");
   const btnNext = document.getElementById("btnNext");
 
@@ -15,10 +16,14 @@
     selected: new Set(),
     lastClickedIndex: null,
     filter: "",
+    category: "",
   };
 
   async function fetchImages() {
-    const url = `/api/catalog/available?page=${state.page}&page_size=${state.pageSize}`;
+    let url = `/api/catalog/available?page=${state.page}&page_size=${state.pageSize}`;
+    if (state.category) {
+      url += `&category=${encodeURIComponent(state.category)}`;
+    }
     const res = await fetch(url);
     const data = await res.json();
     state.images = data.images || [];
@@ -126,6 +131,12 @@
 
   pageSizeSel.addEventListener("change", () => {
     state.pageSize = parseInt(pageSizeSel.value, 10);
+    state.page = 1;
+    fetchImages();
+  });
+
+  categoryFilter.addEventListener("change", () => {
+    state.category = categoryFilter.value;
     state.page = 1;
     fetchImages();
   });
