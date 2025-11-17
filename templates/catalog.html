@@ -20,10 +20,16 @@
             </div>
             <div id="category-controls" class="d-flex justify-content-between align-items-center mb-3">
                 <div class="btn-group" role="group" aria-label="Category filter">
-                    <button type="button" class="btn btn-outline-primary category-btn active" data-category="">All</button>
+                    <button type="button" class="btn btn-outline-primary category-btn active" data-category="">All Categories</button>
                     <button type="button" class="btn btn-outline-primary category-btn" data-category="TrapNode">TrapNode</button>
                     <button type="button" class="btn btn-outline-primary category-btn" data-category="TrailCam">TrailCam</button>
                     <button type="button" class="btn btn-outline-primary category-btn" data-category="CageNode">CageNode</button>
+                </div>
+                <div class="input-group" style="max-width: 300px;">
+                    <label class="input-group-text" for="class-filter-select">Filter by Class</label>
+                    <select id="class-filter-select" class="form-select">
+                        <option value="">All Classes</option>
+                    </select>
                 </div>
                 <div class="btn-group" role="group" aria-label="Move selected">
                     <button id="move-to-trapnode-btn" class="btn btn-outline-secondary" disabled>Move to TrapNode</button>
@@ -51,6 +57,7 @@ let thumbSize = 192;
 let pageBoxes = {};
 let projectAssociations = {};
 let currentCategory = "";
+let currentClassFilter = "";
 
 async function fetchClasses() {
     const response = await fetch('/api/classes');
@@ -64,12 +71,19 @@ async function fetchClasses() {
 
 async function populateClassFilter() {
     const classes = await fetchClasses();
-    const select = document.getElementById('class-select');
+    const changeSelect = document.getElementById('class-select');
+    const filterSelect = document.getElementById('class-filter-select');
+
     classes.forEach(cls => {
-        const option = document.createElement('option');
-        option.value = cls;
-        option.textContent = cls;
-        select.appendChild(option);
+        const option1 = document.createElement('option');
+        option1.value = cls;
+        option1.textContent = cls;
+        changeSelect.appendChild(option1);
+
+        const option2 = document.createElement('option');
+        option2.value = cls;
+        option2.textContent = cls;
+        filterSelect.appendChild(option2);
     });
 }
 
@@ -157,6 +171,9 @@ async function fetchImages(page = 1) {
     let url = `/api/catalog/images?page=${page}&page_size=${pageSize}`;
     if (currentCategory) {
         url += `&category=${encodeURIComponent(currentCategory)}`;
+    }
+    if (currentClassFilter) {
+        url += `&class_filter=${encodeURIComponent(currentClassFilter)}`;
     }
     const response = await fetch(url);
     if (!response.ok) {
@@ -250,9 +267,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const deleteSelectedBtn = document.getElementById('delete-selected-btn');
     const changeClassBtn = document.getElementById('change-class-btn');
     const classSelect = document.getElementById('class-select');
+    const classFilterSelect = document.getElementById('class-filter-select');
     let lastClickedIndex = null;
 
     populateClassFilter();
+
+    classFilterSelect.addEventListener('change', () => {
+        currentClassFilter = classFilterSelect.value;
+        currentPage = 1;
+        loadPage(currentPage);
+    });
 
     changeClassBtn.addEventListener('click', async () => {
         const selectedTiles = grid.querySelectorAll('.tile.selected');
