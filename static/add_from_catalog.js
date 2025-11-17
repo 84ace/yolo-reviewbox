@@ -143,7 +143,23 @@
 
   document.addEventListener("keydown", (e) => {
     if (e.target.tagName === "INPUT") return;
-    if (e.key === "Enter") addSelected();
+    if (e.key === "Enter") {
+      addSelected();
+    } else if (e.key === "a") {
+      e.preventDefault();
+      let imgs = state.images;
+      if (state.filter.trim()) {
+        const q = state.filter.toLowerCase();
+        imgs = imgs.filter(n => n.toLowerCase().includes(q));
+      }
+      const allSelected = imgs.length > 0 && imgs.every(name => state.selected.has(name));
+      if (allSelected) {
+        imgs.forEach(name => state.selected.delete(name));
+      } else {
+        imgs.forEach(name => state.selected.add(name));
+      }
+      render();
+    }
   });
 
   fetchImages();
