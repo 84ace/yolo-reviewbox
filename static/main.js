@@ -355,6 +355,16 @@
   document.getElementById("btnAddFromCatalog").addEventListener("click", () => {
     window.location.href = "/add_from_catalog";
   });
+  document.getElementById("btnReviewMode").addEventListener("click", (e) => {
+    e.preventDefault();
+    const selectedFiles = Array.from(state.selected);
+    if (selectedFiles.length > 0) {
+      sessionStorage.setItem("reviewImages", JSON.stringify(selectedFiles));
+    } else {
+      sessionStorage.removeItem("reviewImages");
+    }
+    window.location.href = e.target.href;
+  });
   importFile.addEventListener("change", importVOC);
   addRemapRow.addEventListener("click", addRemapRowLogic);
   runExport.addEventListener("click", runExportLogic);
@@ -390,6 +400,15 @@
     const projects = data.projects || [];
     state.project = data.active;
     projectSwitcher.innerHTML = "";
+    if (projects.length === 0) {
+        // Handle no projects case
+        const opt = document.createElement("option");
+        opt.textContent = "No projects yet";
+        projectSwitcher.appendChild(opt);
+        projectSwitcher.disabled = true;
+        btnNewProject.click(); // Open the new project modal
+        return;
+    }
     projects.forEach(p => {
       const opt = document.createElement("option");
       opt.value = p;
@@ -426,7 +445,6 @@
 
   function showNewProjectModal() {
     newProjectName.value = "";
-    moveCurrentProject.checked = false;
     newProjectModal.style.display = "flex";
     newProjectName.focus();
   }
@@ -445,7 +463,6 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name,
-          move_from: moveCurrentProject.checked ? state.project : null,
         }),
       });
       const data = await res.json();

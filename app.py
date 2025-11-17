@@ -16,12 +16,38 @@ PAGE_SIZE_DEFAULT = int(os.environ.get("RB_PAGE_SIZE", "200"))
 ALLOWED_EXTS = {".jpg", ".jpeg", ".png"}
 
 ACTIVE_PROJECT_FILE = os.path.join(PROJECTS_ROOT_DIR, "active_project.txt")
+IMAGE_CATEGORIES_FILE = os.path.join(PROJECTS_ROOT_DIR, "image_categories.json")
+
+def load_image_categories():
+    if os.path.exists(IMAGE_CATEGORIES_FILE):
+        with open(IMAGE_CATEGORIES_FILE, "r") as f:
+            return json.load(f)
+    return {}
+
+def save_image_categories(categories):
+    with open(IMAGE_CATEGORIES_FILE, "w") as f:
+        json.dump(categories, f, indent=2)
+
+def scan_and_categorize_images():
+    categories = load_image_categories()
+    image_files = [f for f in os.listdir(IMAGE_CATALOG_DIR) if os.path.isfile(os.path.join(IMAGE_CATALOG_DIR, f))]
+    for filename in image_files:
+        if filename not in categories:
+            try:
+                size = os.path.getsize(os.path.join(IMAGE_CATALOG_DIR, filename))
+                if size > 20000:
+                    categories[filename] = "TrailCam"
+                else:
+                    categories[filename] = "TrapNode"
+            except OSError:
+                continue
+    save_image_categories(categories)
 
 def get_active_project() -> str:
     if os.path.exists(ACTIVE_PROJECT_FILE):
         with open(ACTIVE_PROJECT_FILE, "r") as f:
             return f.read().strip()
-    return "default"
+    return None
 
 def set_active_project(name: str):
     os.makedirs(PROJECTS_ROOT_DIR, exist_ok=True)
@@ -36,7 +62,10 @@ def get_project_dirs(project_name: str) -> Dict[str, str]:
     }
 
 def get_active_project_dirs() -> Dict[str, str]:
-    return get_project_dirs(get_active_project())
+    active_project = get_active_project()
+    if active_project:
+        return get_project_dirs(active_project)
+    return None
 
 def ensure_project_dirs_exist(project_name: str):
     dirs = get_project_dirs(project_name)
@@ -45,12 +74,11 @@ def ensure_project_dirs_exist(project_name: str):
         with open(dirs["project_images"], "w") as f:
             pass  # Create an empty file
 
-# Ensure default project exists on startup
-ensure_project_dirs_exist(get_active_project())
 os.makedirs(RAW_IMAGES_DIR, exist_ok=True)
 os.makedirs(IMAGE_CATALOG_DIR, exist_ok=True)
 os.makedirs(ANNOTATION_CATALOG_DIR, exist_ok=True)
 
+scan_and_categorize_images()
 
 app = Flask(__name__, static_url_path='/static', static_folder='static')
 # Respect X-Forwarded-Proto/Host when behind a reverse proxy
@@ -58,6 +86,8 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
 def list_images_sorted() -> List[str]:
     dirs = get_active_project_dirs()
+    if not dirs:
+        return []
     images_file = dirs["project_images"]
     if not os.path.exists(images_file):
         return []
@@ -154,8 +184,10 @@ def api_catalog_available():
     except: page_size = PAGE_SIZE_DEFAULT
 
     dirs = get_active_project_dirs()
-    with open(dirs["project_images"], "r") as f:
-        project_images = {line.strip() for line in f}
+    project_images = set()
+    if dirs:
+        with open(dirs["project_images"], "r") as f:
+            project_images = {line.strip() for line in f}
 
     catalog_images = {f for f in os.listdir(IMAGE_CATALOG_DIR) if os.path.isfile(os.path.join(IMAGE_CATALOG_DIR, f))}
     available_images = sorted(list(catalog_images - project_images))
@@ -177,11 +209,16 @@ def api_catalog_images():
     except: page = 1
     try: page_size = int(request.args.get("page_size", str(PAGE_SIZE_DEFAULT)))
     except: page_size = PAGE_SIZE_DEFAULT
+    category = request.args.get("category")
 
     all_files = sorted(
         [f for f in os.listdir(IMAGE_CATALOG_DIR) if os.path.isfile(os.path.join(IMAGE_CATALOG_DIR, f))],
         key=lambda f: (-os.path.getmtime(os.path.join(IMAGE_CATALOG_DIR, f)), f.lower())
     )
+
+    if category:
+        categories = load_image_categories()
+        all_files = [f for f in all_files if categories.get(f) == category]
 
     total = len(all_files)
     start = max(0, (page - 1) * page_size)
@@ -210,12 +247,60 @@ def api_catalog_project_associations():
                         associations[image].append(project)
     return jsonify(associations)
 
+@app.route("/api/catalog/delete", methods=["POST"])
+def api_catalog_delete():
+    data = request.get_json(force=True, silent=True) or {}
+    files_to_delete = data.get("files", [])
+    deleted_count = 0
+    errors = []
+
+    for filename in files_to_delete:
+        if not is_safe_filename(filename):
+            errors.append({"file": filename, "error": "Invalid filename"})
+            continue
+
+        try:
+            # Delete the image file
+            image_path = os.path.join(IMAGE_CATALOG_DIR, filename)
+            if os.path.exists(image_path):
+                os.remove(image_path)
+
+            # Delete the annotation file
+            annotation_path = catalog_voc_xml_path(filename)
+            if os.path.exists(annotation_path):
+                os.remove(annotation_path)
+
+            deleted_count += 1
+        except Exception as e:
+            errors.append({"file": filename, "error": str(e)})
+
+    return jsonify({"deleted_count": deleted_count, "errors": errors})
+
+@app.route("/api/catalog/move_category", methods=["POST"])
+def api_catalog_move_category():
+    data = request.get_json(force=True, silent=True) or {}
+    files_to_move = data.get("files", [])
+    new_category = data.get("category")
+    if new_category not in ["TrapNode", "CageNode"]:
+        return jsonify({"error": "Invalid category"}), 400
+
+    categories = load_image_categories()
+    for filename in files_to_move:
+        if filename in categories:
+            categories[filename] = new_category
+    save_image_categories(categories)
+
+    return jsonify({"ok": True})
+
 @app.route("/api/catalog/add_to_project", methods=["POST"])
 def api_catalog_add_to_project():
     data = request.get_json(force=True, silent=True) or {}
     files = data.get("files", [])
     errors = []
     dirs = get_active_project_dirs()
+    if not dirs:
+        errors.append({"error": "No active project"})
+        return jsonify({"ok": False, "errors": errors})
 
     try:
         with open(dirs["project_images"], "a") as f:
@@ -315,6 +400,9 @@ def api_delete():
     errors = []
 
     dirs = get_active_project_dirs()
+    if not dirs:
+        errors.append({"error": "No active project"})
+        return jsonify({"deleted_count": 0, "errors": errors})
     images_file = dirs["project_images"]
 
     try:
@@ -531,6 +619,8 @@ def api_import_voc():
         imported_images = []
         failed_files = []
         dirs = get_active_project_dirs()
+        if not dirs:
+            return jsonify({"error": "No active project"}), 400
 
         with zipfile.ZipFile(file, 'r') as z:
             for item in z.infolist():
@@ -565,11 +655,13 @@ def api_import_voc():
                     f.write(img + "\n")
 
         update_classes_from_annotations()
+        scan_and_categorize_images()
 
         message = f"Imported {len(imported_images)} images."
         if failed_files:
             message += f" Failed to import {len(failed_files)} files."
 
+        scan_and_categorize_images()
         return jsonify({"ok": True, "message": message, "failed_files": failed_files})
     except zipfile.BadZipFile:
         return jsonify({"error": "Invalid or corrupted zip file."}), 400
@@ -590,6 +682,8 @@ def api_import_images():
         imported_images = []
         failed_files = []
         dirs = get_active_project_dirs()
+        if not dirs:
+            return jsonify({"error": "No active project"}), 400
         with zipfile.ZipFile(file, 'r') as z:
             for item in z.infolist():
                 try:
@@ -650,6 +744,8 @@ def api_export_voc():
             remap_dict[f] = r.get("to")
 
     dirs = get_active_project_dirs()
+    if not dirs:
+        return jsonify({"error": "No active project"}), 400
     exports_dir = dirs["exports"]
 
     ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
@@ -729,12 +825,14 @@ def api_export_voc():
 def serve_export(fname):
     if "/" in fname or "\\" in fname or not fname.endswith(".zip"): abort(400)
     dirs = get_active_project_dirs()
+    if not dirs:
+        abort(404)
     exports_dir = dirs["exports"]
     return send_from_directory(exports_dir, fname, as_attachment=True)
 
 @app.route("/api/projects", methods=["GET"])
 def api_get_projects():
-    projects = [d for d in os.listdir(PROJECTS_ROOT_DIR) if os.path.isdir(os.path.join(PROJECTS_ROOT_DIR, d))]
+    projects = [d for d in os.listdir(PROJECTS_ROOT_DIR) if os.path.isdir(os.path.join(PROJECTS_ROOT_DIR, d)) and d != "exports"]
     return jsonify({
         "projects": sorted(projects),
         "active": get_active_project(),
@@ -772,6 +870,15 @@ def api_create_project():
 
 @app.route("/api/raw_browser")
 def api_raw_browser():
+    try:
+        page = int(request.args.get("page", "1"))
+    except ValueError:
+        page = 1
+    try:
+        page_size = int(request.args.get("page_size", str(PAGE_SIZE_DEFAULT)))
+    except ValueError:
+        page_size = PAGE_SIZE_DEFAULT
+
     # Security: Ensure path is within RAW_IMAGES_DIR
     path_param = request.args.get("path", "")
     abs_path = os.path.abspath(os.path.join(RAW_IMAGES_DIR, path_param))
@@ -806,7 +913,16 @@ def api_raw_browser():
     # Sort directories first, then files
     items.sort(key=lambda x: (x.get("type", "file") != "dir", x.get("name").lower()))
 
-    return jsonify(items)
+    total = len(items)
+    start = max(0, (page - 1) * page_size)
+    end = min(total, start + page_size)
+
+    return jsonify({
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "items": items[start:end]
+    })
 
 @app.route("/raw_image/<path:fname>")
 def serve_raw_image(fname):
