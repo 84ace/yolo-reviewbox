@@ -221,6 +221,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const grid = document.getElementById('image-grid');
     const reviewSelectedBtn = document.getElementById('review-selected-btn');
     const deleteSelectedBtn = document.getElementById('delete-selected-btn');
+    let lastClickedIndex = null;
 
     thumbSizeSelect.addEventListener('change', (e) => {
         thumbSize = parseInt(e.target.value, 10);
@@ -235,7 +236,20 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         const tile = e.target.closest('.tile');
         if (tile) {
-            tile.classList.toggle('selected');
+            const tiles = Array.from(grid.children);
+            const currentIndex = tiles.indexOf(tile);
+
+            if (e.shiftKey && lastClickedIndex !== null) {
+                const start = Math.min(lastClickedIndex, currentIndex);
+                const end = Math.max(lastClickedIndex, currentIndex);
+                for (let i = start; i <= end; i++) {
+                    tiles[i].classList.add('selected');
+                }
+            } else {
+                tile.classList.toggle('selected');
+            }
+
+            lastClickedIndex = currentIndex;
             updateButtons();
         }
     });
@@ -311,6 +325,18 @@ document.addEventListener('DOMContentLoaded', () => {
         reviewSelectedBtn.textContent = enabled ? `Review Selected (${selectedCount})` : 'Review Selected';
         deleteSelectedBtn.textContent = enabled ? `Delete Selected (${selectedCount})` : 'Delete Selected';
     }
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'a' && document.activeElement.tagName.toLowerCase() !== 'input') {
+            e.preventDefault();
+            const tiles = grid.querySelectorAll('.tile');
+            const allSelected = grid.querySelectorAll('.tile.selected').length === tiles.length;
+            tiles.forEach(tile => {
+                tile.classList.toggle('selected', !allSelected);
+            });
+            updateButtons();
+        }
+    });
 
     loadPage(currentPage);
 });
