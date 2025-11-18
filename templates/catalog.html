@@ -59,6 +59,27 @@ let projectAssociations = {};
 let currentCategory = "";
 let currentClassFilter = "";
 
+function saveState() {
+    const state = {
+        page: currentPage,
+        thumbSize: thumbSize,
+        category: currentCategory,
+        classFilter: currentClassFilter
+    };
+    sessionStorage.setItem('catalogState', JSON.stringify(state));
+}
+
+function loadState() {
+    const savedState = sessionStorage.getItem('catalogState');
+    if (savedState) {
+        const state = JSON.parse(savedState);
+        currentPage = state.page || 1;
+        thumbSize = state.thumbSize || 192;
+        currentCategory = state.category || "";
+        currentClassFilter = state.classFilter || "";
+    }
+}
+
 async function fetchClasses() {
     const response = await fetch('/api/classes');
     if (!response.ok) {
@@ -234,6 +255,7 @@ function renderPagination(total, page, page_size) {
         a.addEventListener('click', (e) => {
             e.preventDefault();
             currentPage = i;
+            saveState();
             loadPage(currentPage);
         });
         li.appendChild(a);
@@ -270,11 +292,25 @@ document.addEventListener('DOMContentLoaded', () => {
     const classFilterSelect = document.getElementById('class-filter-select');
     let lastClickedIndex = null;
 
-    populateClassFilter();
+    loadState();
+
+    populateClassFilter().then(() => {
+        if (currentClassFilter) {
+            classFilterSelect.value = currentClassFilter;
+        }
+    });
+
+    if (currentCategory) {
+        document.querySelector('.category-btn.active').classList.remove('active');
+        document.querySelector(`.category-btn[data-category="${currentCategory}"]`).classList.add('active');
+    }
+
+    thumbSizeSelect.value = thumbSize;
 
     classFilterSelect.addEventListener('change', () => {
         currentClassFilter = classFilterSelect.value;
         currentPage = 1;
+        saveState();
         loadPage(currentPage);
     });
 
@@ -304,6 +340,7 @@ document.addEventListener('DOMContentLoaded', () => {
     thumbSizeSelect.addEventListener('change', (e) => {
         thumbSize = parseInt(e.target.value, 10);
         grid.style.gridTemplateColumns = `repeat(auto-fill, minmax(${thumbSize}px, 1fr))`;
+        saveState();
     });
     thumbSize = parseInt(thumbSizeSelect.value, 10);
     grid.style.gridTemplateColumns = `repeat(auto-fill, minmax(${thumbSize}px, 1fr))`;
@@ -368,6 +405,7 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.classList.add('active');
             currentCategory = btn.dataset.category;
             currentPage = 1;
+            saveState();
             loadPage(currentPage);
         });
     });
