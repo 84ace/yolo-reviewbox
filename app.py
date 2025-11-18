@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import os, glob, json, shutil, zipfile, io
+import os, glob, json, shutil, zipfile, io, hashlib
 from datetime import datetime
 from typing import List, Dict, Any
 from flask import Flask, request, jsonify, render_template, send_from_directory, abort
@@ -866,6 +866,23 @@ def api_export_voc():
     shutil.make_archive(base_name=zip_path[:-4], format="zip", root_dir=out_root)
     return jsonify({"ok": True, "count": len(kept), "zip_name": os.path.basename(zip_path), "zip_url": f"/exports/{os.path.basename(zip_path)}"})
 
+def file_sha256(filepath):
+    """Calculates the SHA256 hash of a file."""
+    h = hashlib.sha256()
+    with open(filepath, 'rb') as f:
+        while True:
+            data = f.read(65536) # 64k chunks
+            if not data:
+                break
+            h.update(data)
+    return h.hexdigest()
+
+def bytes_sha256(byte_stream):
+    """Calculates the SHA256 hash of a byte stream."""
+    h = hashlib.sha256()
+    h.update(byte_stream)
+    return h.hexdigest()
+
 @app.route("/api/export_voc_diff", methods=["POST"])
 def api_export_voc_diff():
     if 'file' not in request.files:
@@ -875,13 +892,27 @@ def api_export_voc_diff():
         return jsonify({"error": "Invalid file, must be a .zip"}), 400
 
     try:
-        old_voc_data = {}
+        old_voc_data = {} # hash -> xml_content
         with zipfile.ZipFile(file, 'r') as z:
-            for item in z.infolist():
-                if item.filename.startswith('Annotations/') and item.filename.endswith('.xml'):
-                    basename = os.path.splitext(os.path.basename(item.filename))[0]
-                    with z.open(item) as f:
-                        old_voc_data[basename] = f.read()
+            image_files = [item for item in z.infolist() if any(item.filename.lower().endswith(ext) for ext in ALLOWED_EXTS) and not item.is_dir()]
+
+            for image_item in image_files:
+                base_filename = os.path.basename(image_item.filename)
+                base_name_no_ext, _ = os.path.splitext(base_filename)
+
+                xml_content = None
+
+                for item in z.infolist():
+                    if item.filename.endswith(base_name_no_ext + ".xml"):
+                        with z.open(item) as f:
+                            xml_content = f.read()
+                        break
+
+                if xml_content:
+                    with z.open(image_item) as f_img:
+                        image_bytes = f_img.read()
+                        image_hash = bytes_sha256(image_bytes)
+                        old_voc_data[image_hash] = xml_content
 
         dirs = get_active_project_dirs()
         if not dirs:
@@ -899,19 +930,35 @@ def api_export_voc_diff():
         changed_files = []
 
         for name in imgs:
-            basename = os.path.splitext(name)[0]
-            axml_src = catalog_voc_xml_path(name)
-
-            if not os.path.exists(axml_src):
+            src_img_path = os.path.join(IMAGE_CATALOG_DIR, name)
+            if not os.path.exists(src_img_path):
                 continue
 
-            with open(axml_src, 'rb') as f:
-                current_xml = f.read()
+            current_image_hash = file_sha256(src_img_path)
+            axml_src_path = catalog_voc_xml_path(name)
 
-            if basename not in old_voc_data or old_voc_data[basename] != current_xml:
-                shutil.copy2(os.path.join(IMAGE_CATALOG_DIR, name), os.path.join(pj, name))
-                shutil.copy2(axml_src, os.path.join(pa, os.path.basename(axml_src)))
+            if current_image_hash not in old_voc_data:
+                if os.path.exists(axml_src_path):
+                    changed_files.append(name)
+                continue
+
+            if not os.path.exists(axml_src_path):
+                continue
+
+            with open(axml_src_path, 'rb') as f:
+                current_xml_content = f.read()
+
+            old_xml_content = old_voc_data[current_image_hash]
+
+            if current_xml_content != old_xml_content:
                 changed_files.append(name)
+
+        for name in changed_files:
+            src_img = os.path.join(IMAGE_CATALOG_DIR, name)
+            axml_src = catalog_voc_xml_path(name)
+
+            shutil.copy2(src_img, os.path.join(pj, name))
+            shutil.copy2(axml_src, os.path.join(pa, os.path.basename(axml_src)))
 
         with open(os.path.join(pm, "train.txt"), "w") as f:
             for k in changed_files: f.write(os.path.splitext(k)[0] + "\n")
@@ -922,6 +969,7 @@ def api_export_voc_diff():
         return jsonify({"ok": True, "count": len(changed_files), "zip_name": os.path.basename(zip_path), "zip_url": f"/exports/{os.path.basename(zip_path)}"})
 
     except Exception as e:
+        app.logger.error(f"Error in diff export: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 @app.route("/exports/<path:fname>")
