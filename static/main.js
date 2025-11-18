@@ -20,6 +20,8 @@
   const addRemapRow = document.getElementById("addRemapRow");
   const nullHandling = document.getElementById("nullHandling");
   const runExport = document.getElementById("runExport");
+  const runDiffExport = document.getElementById("runDiffExport");
+  const diffFile = document.getElementById("diffFile");
   const cancelExport = document.getElementById("cancelExport");
   const exportSpinner = document.getElementById("exportSpinner");
 
@@ -286,6 +288,46 @@
     }
   }
 
+  async function runDiffExportLogic() {
+    if (!diffFile.files.length) {
+      alert("Please select a zip file for the diff export.");
+      return;
+    }
+    const file = diffFile.files[0];
+
+    runExport.disabled = true;
+    runDiffExport.disabled = true;
+    exportSpinner.style.display = "flex";
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const res = await fetch("/api/export_voc_diff", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+      if (data.ok) {
+        const a = document.createElement("a");
+        a.href = data.zip_url;
+        a.download = data.zip_name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        exportModal.style.display = "none";
+      } else {
+        alert("Diff export failed: " + (data.error || "Unknown error"));
+      }
+    } catch (e) {
+      alert(`An error occurred: ${e.message}`);
+    } finally {
+      runExport.disabled = false;
+      runDiffExport.disabled = false;
+      exportSpinner.style.display = "none";
+      diffFile.value = "";
+    }
+  }
 
   async function importVOC() {
     if (!importFile.files.length) { alert("Please select a zip file to import."); return; }
@@ -368,6 +410,8 @@
   importFile.addEventListener("change", importVOC);
   addRemapRow.addEventListener("click", addRemapRowLogic);
   runExport.addEventListener("click", runExportLogic);
+  runDiffExport.addEventListener("click", () => diffFile.click());
+  diffFile.addEventListener("change", runDiffExportLogic);
   cancelExport.addEventListener("click", () => { exportModal.style.display = "none"; });
   btnImportImages.addEventListener("click", () => importImagesFile.click());
   importImagesFile.addEventListener("change", importImages);

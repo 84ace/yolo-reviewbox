@@ -12,6 +12,7 @@ PROJECTS_ROOT_DIR = os.environ.get("RB_PROJECTS_DIR", os.path.abspath("./project
 RAW_IMAGES_DIR = os.environ.get("RB_RAW_IMAGES_DIR", os.path.abspath("./raw_images"))
 IMAGE_CATALOG_DIR = os.environ.get("RB_IMAGE_CATALOG_DIR", os.path.abspath("./image_catalog"))
 ANNOTATION_CATALOG_DIR = os.environ.get("RB_ANNOTATION_CATALOG_DIR", os.path.abspath("./annotations"))
+BACKUP_DIR = os.environ.get("RB_BACKUP_DIR", os.path.abspath("./backups"))
 PAGE_SIZE_DEFAULT = int(os.environ.get("RB_PAGE_SIZE", "200"))
 ALLOWED_EXTS = {".jpg", ".jpeg", ".png"}
 
@@ -77,6 +78,7 @@ def ensure_project_dirs_exist(project_name: str):
 os.makedirs(RAW_IMAGES_DIR, exist_ok=True)
 os.makedirs(IMAGE_CATALOG_DIR, exist_ok=True)
 os.makedirs(ANNOTATION_CATALOG_DIR, exist_ok=True)
+os.makedirs(BACKUP_DIR, exist_ok=True)
 
 scan_and_categorize_images()
 
@@ -864,6 +866,64 @@ def api_export_voc():
     shutil.make_archive(base_name=zip_path[:-4], format="zip", root_dir=out_root)
     return jsonify({"ok": True, "count": len(kept), "zip_name": os.path.basename(zip_path), "zip_url": f"/exports/{os.path.basename(zip_path)}"})
 
+@app.route("/api/export_voc_diff", methods=["POST"])
+def api_export_voc_diff():
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part"}), 400
+    file = request.files['file']
+    if file.filename == '' or not file.filename.lower().endswith('.zip'):
+        return jsonify({"error": "Invalid file, must be a .zip"}), 400
+
+    try:
+        old_voc_data = {}
+        with zipfile.ZipFile(file, 'r') as z:
+            for item in z.infolist():
+                if item.filename.startswith('Annotations/') and item.filename.endswith('.xml'):
+                    basename = os.path.splitext(os.path.basename(item.filename))[0]
+                    with z.open(item) as f:
+                        old_voc_data[basename] = f.read()
+
+        dirs = get_active_project_dirs()
+        if not dirs:
+            return jsonify({"error": "No active project"}), 400
+        exports_dir = dirs["exports"]
+
+        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        out_root = os.path.join(exports_dir, f"VOC_diff_{ts}")
+        pj = os.path.join(out_root, "JPEGImages")
+        pa = os.path.join(out_root, "Annotations")
+        pm = os.path.join(out_root, "ImageSets", "Main")
+        os.makedirs(pj, exist_ok=True); os.makedirs(pa, exist_ok=True); os.makedirs(pm, exist_ok=True)
+
+        imgs = list_images_sorted()
+        changed_files = []
+
+        for name in imgs:
+            basename = os.path.splitext(name)[0]
+            axml_src = catalog_voc_xml_path(name)
+
+            if not os.path.exists(axml_src):
+                continue
+
+            with open(axml_src, 'rb') as f:
+                current_xml = f.read()
+
+            if basename not in old_voc_data or old_voc_data[basename] != current_xml:
+                shutil.copy2(os.path.join(IMAGE_CATALOG_DIR, name), os.path.join(pj, name))
+                shutil.copy2(axml_src, os.path.join(pa, os.path.basename(axml_src)))
+                changed_files.append(name)
+
+        with open(os.path.join(pm, "train.txt"), "w") as f:
+            for k in changed_files: f.write(os.path.splitext(k)[0] + "\n")
+
+        zip_path = os.path.join(exports_dir, f"VOC_diff_{ts}.zip")
+        shutil.make_archive(base_name=zip_path[:-4], format="zip", root_dir=out_root)
+
+        return jsonify({"ok": True, "count": len(changed_files), "zip_name": os.path.basename(zip_path), "zip_url": f"/exports/{os.path.basename(zip_path)}"})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/exports/<path:fname>")
 def serve_export(fname):
     if "/" in fname or "\\" in fname or not fname.endswith(".zip"): abort(400)
@@ -1113,6 +1173,60 @@ def api_raw_delete():
                 pass
 
     return jsonify({"deleted": deleted, "errors": errors})
+
+@app.route("/api/backup", methods=["GET"])
+def api_backup():
+    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    zip_path = os.path.join(BACKUP_DIR, f"yolo-reviewbox-backup-{ts}.zip")
+
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for root, _, files in os.walk(IMAGE_CATALOG_DIR):
+            for file in files:
+                zf.write(os.path.join(root, file), arcname=os.path.join("image_catalog", os.path.relpath(os.path.join(root, file), IMAGE_CATALOG_DIR)))
+        for root, _, files in os.walk(ANNOTATION_CATALOG_DIR):
+            for file in files:
+                zf.write(os.path.join(root, file), arcname=os.path.join("annotations", os.path.relpath(os.path.join(root, file), ANNOTATION_CATALOG_DIR)))
+        for root, _, files in os.walk(PROJECTS_ROOT_DIR):
+            for file in files:
+                zf.write(os.path.join(root, file), arcname=os.path.join("projects", os.path.relpath(os.path.join(root, file), PROJECTS_ROOT_DIR)))
+
+    return send_from_directory(BACKUP_DIR, os.path.basename(zip_path), as_attachment=True)
+
+@app.route("/api/restore", methods=["POST"])
+def api_restore():
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part"}), 400
+    file = request.files['file']
+    if file.filename == '' or not file.filename.lower().endswith('.zip'):
+        return jsonify({"error": "Invalid file, must be a .zip"}), 400
+
+    import tempfile
+    with tempfile.TemporaryDirectory() as temp_dir:
+        try:
+            with zipfile.ZipFile(file, 'r') as z:
+                z.extractall(temp_dir)
+
+            # Clear existing data
+            for d in [IMAGE_CATALOG_DIR, ANNOTATION_CATALOG_DIR, PROJECTS_ROOT_DIR]:
+                if os.path.exists(d):
+                    shutil.rmtree(d)
+
+            # Move extracted contents to their final destinations
+            temp_image_catalog = os.path.join(temp_dir, "image_catalog")
+            if os.path.exists(temp_image_catalog):
+                shutil.move(temp_image_catalog, IMAGE_CATALOG_DIR)
+
+            temp_annotation_catalog = os.path.join(temp_dir, "annotations")
+            if os.path.exists(temp_annotation_catalog):
+                shutil.move(temp_annotation_catalog, ANNOTATION_CATALOG_DIR)
+
+            temp_projects = os.path.join(temp_dir, "projects")
+            if os.path.exists(temp_projects):
+                shutil.move(temp_projects, PROJECTS_ROOT_DIR)
+
+            return jsonify({"ok": True, "message": "Restore successful."})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     use_https = os.environ.get("RB_USE_HTTPS", "").lower() in ("1","true","yes")
