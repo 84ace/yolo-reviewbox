@@ -189,8 +189,14 @@ def api_catalog_available():
         with open(dirs["project_images"], "r") as f:
             project_images = {line.strip() for line in f}
 
+    category = request.args.get("category")
+
     catalog_images = {f for f in os.listdir(IMAGE_CATALOG_DIR) if os.path.isfile(os.path.join(IMAGE_CATALOG_DIR, f))}
     available_images = sorted(list(catalog_images - project_images))
+
+    if category:
+        categories = load_image_categories()
+        available_images = [f for f in available_images if categories.get(f) == category]
 
     total = len(available_images)
     start = max(0, (page - 1) * page_size)
@@ -210,6 +216,7 @@ def api_catalog_images():
     try: page_size = int(request.args.get("page_size", str(PAGE_SIZE_DEFAULT)))
     except: page_size = PAGE_SIZE_DEFAULT
     category = request.args.get("category")
+    class_filter = request.args.get("class_filter")
 
     all_files = sorted(
         [f for f in os.listdir(IMAGE_CATALOG_DIR) if os.path.isfile(os.path.join(IMAGE_CATALOG_DIR, f))],
@@ -219,6 +226,9 @@ def api_catalog_images():
     if category:
         categories = load_image_categories()
         all_files = [f for f in all_files if categories.get(f) == category]
+
+    if class_filter:
+        all_files = get_images_by_class(class_filter, images_to_check=all_files)
 
     total = len(all_files)
     start = max(0, (page - 1) * page_size)
@@ -292,6 +302,36 @@ def api_catalog_move_category():
 
     return jsonify({"ok": True})
 
+@app.route("/api/catalog/change_class", methods=["POST"])
+def api_catalog_change_class():
+    data = request.get_json(force=True, silent=True) or {}
+    files_to_change = data.get("files", [])
+    new_class = data.get("new_class")
+    errors = []
+
+    if not new_class:
+        return jsonify({"error": "No class provided"}), 400
+
+    for filename in files_to_change:
+        if not is_safe_filename(filename):
+            errors.append({"file": filename, "error": "Invalid filename"})
+            continue
+
+        annotation_path = catalog_voc_xml_path(filename)
+        if os.path.exists(annotation_path):
+            try:
+                tree = ET.parse(annotation_path)
+                root = tree.getroot()
+                for obj in root.findall("object"):
+                    obj.find("name").text = new_class
+                tree.write(annotation_path)
+            except Exception as e:
+                errors.append({"file": filename, "error": str(e)})
+        else:
+            errors.append({"file": filename, "error": "No annotation file found"})
+
+    return jsonify({"ok": True, "errors": errors})
+
 @app.route("/api/catalog/add_to_project", methods=["POST"])
 def api_catalog_add_to_project():
     data = request.get_json(force=True, silent=True) or {}
@@ -340,33 +380,36 @@ def get_unannotated_images() -> List[str]:
     unannotated = sorted(list(all_images - annotated_images), key=lambda p: p.lower())
     return unannotated
 
-def get_images_by_class(class_name: str) -> List[str]:
+def get_images_by_class(class_name: str, images_to_check: List[str] = None) -> List[str]:
     img_files = set()
     if class_name == "__unannotated__":
         return get_unannotated_images()
 
-    for ann_file in glob.glob(os.path.join(ANNOTATION_CATALOG_DIR, "*.xml")):
+    annotation_files = glob.glob(os.path.join(ANNOTATION_CATALOG_DIR, "*.xml"))
+    image_to_annotation = {os.path.splitext(os.path.basename(f))[0]: f for f in annotation_files}
+
+    images_to_scan = images_to_check
+    if images_to_scan is None:
+        images_to_scan = list_images_sorted()
+
+    for img_name in images_to_scan:
+        base_name = os.path.splitext(img_name)[0]
+        ann_file = image_to_annotation.get(base_name)
+        if not ann_file:
+            continue
         try:
             tree = ET.parse(ann_file)
             root = tree.getroot()
-
             if class_name == "__null__":
                 if any(o.findtext("name") == "__null__" for o in root.findall("object")):
-                    filename = root.findtext("filename")
-                    if filename:
-                        img_files.add(filename)
+                    img_files.add(img_name)
             else:
-                for obj in root.findall("object"):
-                    if obj.findtext("name") == class_name:
-                        filename = root.findtext("filename")
-                        if filename:
-                            img_files.add(filename)
-                        break
+                if any(o.findtext("name") == class_name for o in root.findall("object")):
+                    img_files.add(img_name)
         except ET.ParseError:
             continue
 
-    all_images = list_images_sorted()
-    return [img for img in all_images if img in img_files]
+    return [img for img in images_to_scan if img in img_files]
 
 @app.route("/api/images")
 def api_images():

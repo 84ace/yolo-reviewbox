@@ -20,14 +20,26 @@
             </div>
             <div id="category-controls" class="d-flex justify-content-between align-items-center mb-3">
                 <div class="btn-group" role="group" aria-label="Category filter">
-                    <button type="button" class="btn btn-outline-primary category-btn active" data-category="">All</button>
+                    <button type="button" class="btn btn-outline-primary category-btn active" data-category="">All Categories</button>
                     <button type="button" class="btn btn-outline-primary category-btn" data-category="TrapNode">TrapNode</button>
                     <button type="button" class="btn btn-outline-primary category-btn" data-category="TrailCam">TrailCam</button>
                     <button type="button" class="btn btn-outline-primary category-btn" data-category="CageNode">CageNode</button>
                 </div>
+                <div class="input-group" style="max-width: 300px;">
+                    <label class="input-group-text" for="class-filter-select">Filter by Class</label>
+                    <select id="class-filter-select" class="form-select">
+                        <option value="">All Classes</option>
+                    </select>
+                </div>
                 <div class="btn-group" role="group" aria-label="Move selected">
                     <button id="move-to-trapnode-btn" class="btn btn-outline-secondary" disabled>Move to TrapNode</button>
                     <button id="move-to-cagenode-btn" class="btn btn-outline-secondary" disabled>Move to CageNode</button>
+                </div>
+                <div class="input-group" style="max-width: 300px;">
+                    <select id="class-select" class="form-select">
+                        <option selected>Choose class...</option>
+                    </select>
+                    <button id="change-class-btn" class="btn btn-outline-secondary" type="button" disabled>Change Class</button>
                 </div>
             </div>
             <div id="image-grid" class="grid noselect"></div>
@@ -45,6 +57,56 @@ let thumbSize = 192;
 let pageBoxes = {};
 let projectAssociations = {};
 let currentCategory = "";
+let currentClassFilter = "";
+
+function saveState() {
+    const state = {
+        page: currentPage,
+        thumbSize: thumbSize,
+        category: currentCategory,
+        classFilter: currentClassFilter
+    };
+    sessionStorage.setItem('catalogState', JSON.stringify(state));
+}
+
+function loadState() {
+    const savedState = sessionStorage.getItem('catalogState');
+    if (savedState) {
+        const state = JSON.parse(savedState);
+        currentPage = state.page || 1;
+        thumbSize = state.thumbSize || 192;
+        currentCategory = state.category || "";
+        currentClassFilter = state.classFilter || "";
+    }
+}
+
+async function fetchClasses() {
+    const response = await fetch('/api/classes');
+    if (!response.ok) {
+        console.error('Failed to fetch classes');
+        return [];
+    }
+    const data = await response.json();
+    return data.classes || [];
+}
+
+async function populateClassFilter() {
+    const classes = await fetchClasses();
+    const changeSelect = document.getElementById('class-select');
+    const filterSelect = document.getElementById('class-filter-select');
+
+    classes.forEach(cls => {
+        const option1 = document.createElement('option');
+        option1.value = cls;
+        option1.textContent = cls;
+        changeSelect.appendChild(option1);
+
+        const option2 = document.createElement('option');
+        option2.value = cls;
+        option2.textContent = cls;
+        filterSelect.appendChild(option2);
+    });
+}
 
 async function fetchProjectAssociations() {
     const response = await fetch('/api/catalog/project_associations');
@@ -131,6 +193,9 @@ async function fetchImages(page = 1) {
     if (currentCategory) {
         url += `&category=${encodeURIComponent(currentCategory)}`;
     }
+    if (currentClassFilter) {
+        url += `&class_filter=${encodeURIComponent(currentClassFilter)}`;
+    }
     const response = await fetch(url);
     if (!response.ok) {
         console.error('Failed to fetch images');
@@ -190,6 +255,7 @@ function renderPagination(total, page, page_size) {
         a.addEventListener('click', (e) => {
             e.preventDefault();
             currentPage = i;
+            saveState();
             loadPage(currentPage);
         });
         li.appendChild(a);
@@ -221,11 +287,60 @@ document.addEventListener('DOMContentLoaded', () => {
     const grid = document.getElementById('image-grid');
     const reviewSelectedBtn = document.getElementById('review-selected-btn');
     const deleteSelectedBtn = document.getElementById('delete-selected-btn');
+    const changeClassBtn = document.getElementById('change-class-btn');
+    const classSelect = document.getElementById('class-select');
+    const classFilterSelect = document.getElementById('class-filter-select');
     let lastClickedIndex = null;
+
+    loadState();
+
+    populateClassFilter().then(() => {
+        if (currentClassFilter) {
+            classFilterSelect.value = currentClassFilter;
+        }
+    });
+
+    if (currentCategory) {
+        document.querySelector('.category-btn.active').classList.remove('active');
+        document.querySelector(`.category-btn[data-category="${currentCategory}"]`).classList.add('active');
+    }
+
+    thumbSizeSelect.value = thumbSize;
+
+    classFilterSelect.addEventListener('change', () => {
+        currentClassFilter = classFilterSelect.value;
+        currentPage = 1;
+        saveState();
+        loadPage(currentPage);
+    });
+
+    changeClassBtn.addEventListener('click', async () => {
+        const selectedTiles = grid.querySelectorAll('.tile.selected');
+        const selectedImages = Array.from(selectedTiles).map(tile => tile.querySelector('img').alt);
+        const newClass = classSelect.value;
+
+        if (selectedImages.length === 0 || !newClass || newClass === 'Choose class...') {
+            alert('Please select images and a class.');
+            return;
+        }
+
+        const response = await fetch('/api/catalog/change_class', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ files: selectedImages, new_class: newClass })
+        });
+
+        if (response.ok) {
+            loadPage(currentPage);
+        } else {
+            alert('Failed to change class.');
+        }
+    });
 
     thumbSizeSelect.addEventListener('change', (e) => {
         thumbSize = parseInt(e.target.value, 10);
         grid.style.gridTemplateColumns = `repeat(auto-fill, minmax(${thumbSize}px, 1fr))`;
+        saveState();
     });
     thumbSize = parseInt(thumbSizeSelect.value, 10);
     grid.style.gridTemplateColumns = `repeat(auto-fill, minmax(${thumbSize}px, 1fr))`;
@@ -290,6 +405,7 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.classList.add('active');
             currentCategory = btn.dataset.category;
             currentPage = 1;
+            saveState();
             loadPage(currentPage);
         });
     });
@@ -322,6 +438,7 @@ document.addEventListener('DOMContentLoaded', () => {
         deleteSelectedBtn.disabled = !enabled;
         document.getElementById('move-to-trapnode-btn').disabled = !enabled;
         document.getElementById('move-to-cagenode-btn').disabled = !enabled;
+        changeClassBtn.disabled = !enabled;
         reviewSelectedBtn.textContent = enabled ? `Review Selected (${selectedCount})` : 'Review Selected';
         deleteSelectedBtn.textContent = enabled ? `Delete Selected (${selectedCount})` : 'Delete Selected';
     }
