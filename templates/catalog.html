@@ -13,6 +13,9 @@
                         <option value="192">Medium</option>
                         <option value="256">Large</option>
                     </select>
+                    <button id="backup-btn" class="btn btn-info">Backup</button>
+                    <button id="restore-btn" class="btn btn-warning">Restore</button>
+                    <input type="file" id="restore-file-input" style="display: none;" accept=".zip">
                     <button id="review-selected-btn" class="btn btn-secondary" disabled>Review Selected</button>
                     <button id="delete-selected-btn" class="btn btn-danger" disabled>Delete Selected</button>
                     <a href="/project" class="btn btn-primary">Go to Project</a>
@@ -290,7 +293,43 @@ document.addEventListener('DOMContentLoaded', () => {
     const changeClassBtn = document.getElementById('change-class-btn');
     const classSelect = document.getElementById('class-select');
     const classFilterSelect = document.getElementById('class-filter-select');
+    const backupBtn = document.getElementById('backup-btn');
+    const restoreBtn = document.getElementById('restore-btn');
+    const restoreFileInput = document.getElementById('restore-file-input');
     let lastClickedIndex = null;
+
+    backupBtn.addEventListener('click', () => {
+        window.location.href = '/api/backup';
+    });
+
+    restoreBtn.addEventListener('click', () => {
+        restoreFileInput.click();
+    });
+
+    restoreFileInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        if (!confirm(`Are you sure you want to restore from ${file.name}? This will overwrite all existing data.`)) {
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const response = await fetch('/api/restore', {
+            method: 'POST',
+            body: formData
+        });
+
+        if (response.ok) {
+            alert('Restore successful. The page will now reload.');
+            window.location.reload();
+        } else {
+            const result = await response.json();
+            alert(`Restore failed: ${result.error}`);
+        }
+    });
 
     loadState();
 
